@@ -13,15 +13,38 @@ library(ggthemes)
 
 ```{r}
 gambling <- read_tsv("gambling_data.txt")
+gambling <- gambling %>%
+  filter(!is.na(TrialType)) 
+
+gambling$TrialType <- as_factor(gambling$TrialType)
+bg <- gambling %>%
+  group_by(Block, HCPID, RunNumber) %>%
+  summarise(BlockType = Mode(TrialType))
+
+gambling <- inner_join(gambling, bg)
 ```
 
 
 ```{r}
-ggplot(gambling, aes(x=QuestionMark.RT)) +
-  geom_histogram(binwidth = 50, col="white") +
+ggplot(gambling, aes(x=QuestionMark.RT, fill=BlockType)) +
+  geom_histogram(binwidth = 50, col="white", alpha=0.5, position = "identity") +
+  #facet_wrap(~BlockType) +
   theme_pander()
 
-ggplot(gambling, aes(x=HCPID, y=QuestionMark.ACC))+
+ggplot(gambling, aes(x=HCPID, y=QuestionMark.RT, col=BlockType))+
   stat_summary(fun.data="mean_se") +
+  theme_pander()
+
+same <- gambling %>%
+  group_by(HCPID, RunNumber, Block, BlockType) %>%
+  summarise(MCSR = mean(ConsecSameResp))
+
+ggplot(same, aes(x=HCPID, y=MCSR, col=BlockType))+
+  stat_summary(fun.data="mean_se") +
+  theme_pander()
+
+ggplot(same, aes(x=BlockType, y=MCSR, col=BlockType))+
+  stat_summary(fun.data="mean_se") +
+  geom_violin() +
   theme_pander()
 ```
