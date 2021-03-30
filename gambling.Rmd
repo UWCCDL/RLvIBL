@@ -1,0 +1,27 @@
+
+---
+title: "Gambling"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggthemes)
+```
+
+## Load the data
+
+```{r}
+gambling <- read_tsv("gambling_data.txt")
+```
+
+
+```{r}
+ggplot(gambling, aes(x=QuestionMark.RT)) +
+  geom_histogram(binwidth = 50, col="white") +
+  theme_pander()
+
+ggplot(gambling, aes(x=HCPID, y=QuestionMark.ACC))+
+  stat_summary(fun.data="mean_se") +
+  theme_pander()
+```
