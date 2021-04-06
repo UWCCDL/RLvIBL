@@ -7,6 +7,9 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(ggthemes)
+library(ggplot2)
+library(tidyverse)
+library(pracma)  # imports Mode function
 ```
 
 ## Load the data
@@ -17,8 +20,17 @@ gambling <- gambling %>%
   filter(!is.na(TrialType)) 
 
 gambling$TrialType <- as_factor(gambling$TrialType)
+
+# Divide into blocks
+
+blockId <- sort(rep(1:4, 8))
+
+gambling <- gambling %>% 
+  group_by(HCPID, RunNumber) %>%
+  mutate(BlockId = blockId)
+
 bg <- gambling %>%
-  group_by(Block, HCPID, RunNumber) %>%
+  group_by(BlockId, HCPID, RunNumber) %>%
   summarise(BlockType = Mode(TrialType))
 
 gambling <- inner_join(gambling, bg)
@@ -36,7 +48,7 @@ ggplot(gambling, aes(x=HCPID, y=QuestionMark.RT, col=BlockType))+
   theme_pander()
 
 same <- gambling %>%
-  group_by(HCPID, RunNumber, Block, BlockType) %>%
+  group_by(HCPID, RunNumber, BlockId, BlockType) %>%
 #  filter(ConsecSameResp < 10) %>%
   summarise(MCSR = max(ConsecSameResp))
 
@@ -49,7 +61,7 @@ ggplot(same, aes(x=BlockType, y=MCSR, col=BlockType))+
   geom_violin(aes(fill=BlockType), alpha=0.2) +
   theme_pander()
 
-ggplot(same, aes(x=MCSR,, col=BlockType))+
+ggplot(same, aes(x=MCSR, col=BlockType))+
   #stat_summary(geom = "errorbar", fun.data="mean_se") +
   geom_density(aes(fill=BlockType), alpha=0.2, position = "identity") +
   theme_pander()
@@ -57,10 +69,91 @@ ggplot(same, aes(x=MCSR,, col=BlockType))+
 
 # Compute win-stay probabilities
 
-The most meaningful way to analyzed the data is through Win-Stay, Lose-Shift. Basically, we calculate the probability of switching response after a Punishment and after a reward.
+The most meaningful way to analyzed the data is through Win-Stay, Lose-Shift (WSLS) Basically, we calculate the probability of switching response after a Punishment and after a Reward. To compute these metrics, we first need to offset the choices.
 
 ```{r}
-winstay <- function(choices, feedback) {
-    
+future_moves <- function(responses) {
+  c(responses[2:length(responses)], NA)
 }
 ```
+
+We can now compute future moves for every block. We will remove the the last trials, which is marked as NA by the `future_moves` function (since there is no future at the end of a trial)
+
+```{r}
+gambling <- gambling %>%
+  group_by(HCPID, RunNumber, BlockId) %>%
+  mutate(Response = if_else(is.na(QuestionMark.RESP), 0, QuestionMark.RESP)) %>%
+  mutate(CurrentResponse = Response,
+         FutureResponse = future_moves(Response)) %>%
+  filter(!is.na(FutureResponse)) %>%
+  #filter(!is.na(CurrentResponse)) %>%
+  mutate(ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1)) 
+```
+
+Now, elt's examine whether a Response Switch is more likely to occur after a Reward or a Punishment
+
+```{r}
+aggregate <- gambling %>%
+  group_by(HCPID, 
+           #RunNumber, 
+           #BlockId, 
+           BlockType, 
+           TrialType) %>%
+  summarise(PSwitch = mean(ResponseSwitch),
+            RT = mean(QuestionMark.RT)
+            )
+```
+
+And now, let;'s visualize
+
+```{r}
+ggplot(filter(aggregate, 
+              TrialType != "Neutral"), 
+       aes(x = TrialType, y = PSwitch, col = TrialType)) +
+  facet_wrap(~BlockType) +
+  geom_point(position = position_jitter(width = 0.1, height = 0.05),
+             alpha = 0.1) +
+  scale_color_brewer(palette = "Set2") +
+  stat_summary(fun.data = "mean_cl_boot", col="black") +
+
+  #geom_boxplot() +
+  theme_pander()
+         
+
+ggplot(filter(aggregate, 
+              TrialType != "Neutral"),
+       aes(x = TrialType, y = PSwitch, col = TrialType)) +
+  facet_wrap(~BlockType) +
+  scale_color_brewer(palette = "Set2") +
+  stat_summary(fun.data = "mean_cl_boot", col="black") +
+
+  #geom_boxplot() +
+  theme_pander()
+
+
+ggplot(filter(aggregate, 
+              TrialType != "Neutral"),
+       aes(x = TrialType, y = RT, col = TrialType)) +
+  facet_wrap(~BlockType) +
+  scale_color_brewer(palette = "Set2") +
+  stat_summary(fun.data = "mean_cl_boot", col="black") +
+
+  #geom_boxplot() +
+  theme_pander()
+
+ggplot(filter(aggregate, 
+              TrialType != "Neutral"),
+       aes(x = HCPID, y = PSwitch, col = TrialType)) +
+  facet_wrap(~BlockType) +
+  scale_color_brewer(palette = "Set2") +
+  stat_summary(fun.data = "mean_cl_boot", geom="point") +
+
+  #geom_boxplot() +
+  theme_pander()
+```
+
+
+```{r}
+summary(aov(PSwitch ~ (TrialType * BlockType) + Error(HCPID/(TrialType*BlockType)), aggregate)) 
+```
+
