@@ -37,14 +37,30 @@ ggplot(gambling, aes(x=HCPID, y=QuestionMark.RT, col=BlockType))+
 
 same <- gambling %>%
   group_by(HCPID, RunNumber, Block, BlockType) %>%
-  summarise(MCSR = mean(ConsecSameResp))
+#  filter(ConsecSameResp < 10) %>%
+  summarise(MCSR = max(ConsecSameResp))
 
-ggplot(same, aes(x=HCPID, y=MCSR, col=BlockType))+
+ggplot(same, aes(x=HCPID, y=MCSR, col=BlockType)) +
   stat_summary(fun.data="mean_se") +
   theme_pander()
 
 ggplot(same, aes(x=BlockType, y=MCSR, col=BlockType))+
-  stat_summary(fun.data="mean_se") +
-  geom_violin() +
+  stat_summary(geom = "errorbar", fun.data="mean_se") +
+  geom_violin(aes(fill=BlockType), alpha=0.2) +
   theme_pander()
+
+ggplot(same, aes(x=MCSR,, col=BlockType))+
+  #stat_summary(geom = "errorbar", fun.data="mean_se") +
+  geom_density(aes(fill=BlockType), alpha=0.2, position = "identity") +
+  theme_pander()
+```
+
+# Compute win-stay probabilities
+
+The most meaningful way to analyzed the data is through Win-Stay, Lose-Shift. Basically, we calculate the probability of switching response after a Punishment and after a reward.
+
+```{r}
+winstay <- function(choices, feedback) {
+    
+}
 ```
