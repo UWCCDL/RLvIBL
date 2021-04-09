@@ -84,10 +84,12 @@ gambling <- gambling %>%
   group_by(HCPID, RunNumber, BlockId) %>%
   mutate(Response = if_else(is.na(QuestionMark.RESP), 0, QuestionMark.RESP)) %>%
   mutate(CurrentResponse = Response,
-         FutureResponse = future_moves(Response)) %>%
-  filter(!is.na(FutureResponse)) %>%
+         FutureResponse = future_moves(Response),
+         RT = QuestionMark.RT) %>%
+  #filter(!is.na(FutureResponse)) %>%
   #filter(!is.na(CurrentResponse)) %>%
-  mutate(ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1)) 
+  mutate(ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1))   %>%
+  select(HCPID, RunNumber, BlockId, RT, Response, CurrentResponse, FutureResponse, ResponseSwitch, BlockType, TrialType)
 ```
 
 Now, elt's examine whether a Response Switch is more likely to occur after a Reward or a Punishment
@@ -100,7 +102,7 @@ aggregate <- gambling %>%
            BlockType, 
            TrialType) %>%
   summarise(PSwitch = mean(ResponseSwitch),
-            RT = mean(QuestionMark.RT)
+            RT = mean(RT)
             )
 ```
 
@@ -156,4 +158,31 @@ ggplot(filter(aggregate,
 ```{r}
 summary(aov(PSwitch ~ (TrialType * BlockType) + Error(HCPID/(TrialType*BlockType)), aggregate)) 
 ```
+
+Some participants might be always responding with the same key; let's get rid of them
+
+```{r}
+totals <- gambling %>%
+  group_by(HCPID, 
+           RunNumber, 
+           BlockId) %>%
+  summarise(Tot = length(Response))
+
+fishbait <- gambling %>%
+  group_by(HCPID, 
+           RunNumber, 
+           #BlockId, 
+           #BlockType, 
+           Response) %>%
+  summarise(Percentage = length(Response)/32)
+
+fishbait$Response <- factor(fishbait$Response)
+
+ggplot(fishbait, aes(x=Percentage, fill=Response)) +
+  geom_histogram(aes(fill=Response), 
+                 col="white", binwidth = 1/32, 
+                 alpha=0.5, position="stack") +
+  theme_pander()
+```
+
 
