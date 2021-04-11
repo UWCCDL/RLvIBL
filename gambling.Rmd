@@ -1,18 +1,50 @@
-
 ---
 title: "Gambling"
-output: html_document
+output:
+  html_document:
+    code_folding: hide
+    theme: yeti
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  word_document:
+    toc: yes
+    toc_depth: '3'
+
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(plyr)
 library(ggthemes)
 library(ggplot2)
+library(ggsci)
 library(tidyverse)
+library(xtable)
+library(kableExtra)
 library(pracma)  # imports Mode function
+library(rstatix)
 ```
 
-## Load the data
+The Gambling task is the only decision-making task in the HCP dataset. It is a strage task, originally devised by the Delgado group at NYU to study dopamine. 
+
+Participants perform 4 blocks of 8 choices each. Each choice has two alternatives options, corresponding to whether a hidden number would be revealed to be greater or smaller than 5. After their decision, the number is revealed, and participants are being given visual feedback as to whether their decision was correct or not. The feedack is called "Reward" or "Punishment". In very few trials, the hidden number is exactly 5, and the feedback is "Neutral".
+
+Unbeknownst to participats, the game is rigged: the sequence of rewards and punishment feedbacks is predefined and identical for all participants, so there is no way to guess correctly.
+
+The four blocks have different frequencies of rewards/punishments. Two blocks are "Mostly Reward", while the remaining two are "Mostly Punishment". The order of blocks is pseudo-random, and also fixed across participants.
+
+Like all otehr HCP tasks, participants perform two sessions with the Gambling task, one week apart.
+
+The task makes little sense and is widely panned as the worst HCP task. But, before tossing it away, let's see if participants respond in som emeaningful way to the feedback.
+
+# Load the data
+
+First we load the data. I have concatenated all of the Eprime files for the first 200 participants into a single text file that we can read: 
+
 
 ```{r}
 gambling <- read_tsv("gambling_data.txt")
@@ -20,146 +52,36 @@ gambling <- gambling %>%
   filter(!is.na(TrialType)) 
 
 gambling$TrialType <- as_factor(gambling$TrialType)
+gambling$HCPID <- as_factor(gambling$HCPID)
+```
+# Divide data into blocks
 
-# Divide into blocks
 
+The data is not naturally divided into blocks, so we are going to create a new variable, `BlockId`, that contains the ID of the block (from 1 to 4).
+
+```{r}
 blockId <- sort(rep(1:4, 8))
 
 gambling <- gambling %>% 
   group_by(HCPID, RunNumber) %>%
-  mutate(BlockId = blockId)
+  mutate(BlockId = blockId, 
+         Response = if_else(is.na(QuestionMark.RESP), 0, QuestionMark.RESP))
+```
 
+We also want to correctly identify the type of block, Mostly Reward or Mostly Pubishment. For this, we will use the modal feedback within each block.
+
+```{r}
 bg <- gambling %>%
   group_by(BlockId, HCPID, RunNumber) %>%
-  summarise(BlockType = Mode(TrialType))
+  summarise(BlockType = paste("Mostly", Mode(TrialType)))
 
 gambling <- inner_join(gambling, bg)
 ```
 
 
-```{r}
-ggplot(gambling, aes(x=QuestionMark.RT, fill=BlockType)) +
-  geom_histogram(binwidth = 50, col="white", alpha=0.5, position = "identity") +
-  #facet_wrap(~BlockType) +
-  theme_pander()
+## Data Cleanup
 
-ggplot(gambling, aes(x=HCPID, y=QuestionMark.RT, col=BlockType))+
-  stat_summary(fun.data="mean_se") +
-  theme_pander()
-
-same <- gambling %>%
-  group_by(HCPID, RunNumber, BlockId, BlockType) %>%
-#  filter(ConsecSameResp < 10) %>%
-  summarise(MCSR = max(ConsecSameResp))
-
-ggplot(same, aes(x=HCPID, y=MCSR, col=BlockType)) +
-  stat_summary(fun.data="mean_se") +
-  theme_pander()
-
-ggplot(same, aes(x=BlockType, y=MCSR, col=BlockType))+
-  stat_summary(geom = "errorbar", fun.data="mean_se") +
-  geom_violin(aes(fill=BlockType), alpha=0.2) +
-  theme_pander()
-
-ggplot(same, aes(x=MCSR, col=BlockType))+
-  #stat_summary(geom = "errorbar", fun.data="mean_se") +
-  geom_density(aes(fill=BlockType), alpha=0.2, position = "identity") +
-  theme_pander()
-```
-
-# Compute win-stay probabilities
-
-The most meaningful way to analyzed the data is through Win-Stay, Lose-Shift (WSLS) Basically, we calculate the probability of switching response after a Punishment and after a Reward. To compute these metrics, we first need to offset the choices.
-
-```{r}
-future_moves <- function(responses) {
-  c(responses[2:length(responses)], NA)
-}
-```
-
-We can now compute future moves for every block. We will remove the the last trials, which is marked as NA by the `future_moves` function (since there is no future at the end of a trial)
-
-```{r}
-gambling <- gambling %>%
-  group_by(HCPID, RunNumber, BlockId) %>%
-  mutate(Response = if_else(is.na(QuestionMark.RESP), 0, QuestionMark.RESP)) %>%
-  mutate(CurrentResponse = Response,
-         FutureResponse = future_moves(Response),
-         RT = QuestionMark.RT) %>%
-  #filter(!is.na(FutureResponse)) %>%
-  #filter(!is.na(CurrentResponse)) %>%
-  mutate(ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1))   %>%
-  select(HCPID, RunNumber, BlockId, RT, Response, CurrentResponse, FutureResponse, ResponseSwitch, BlockType, TrialType)
-```
-
-Now, elt's examine whether a Response Switch is more likely to occur after a Reward or a Punishment
-
-```{r}
-aggregate <- gambling %>%
-  group_by(HCPID, 
-           #RunNumber, 
-           #BlockId, 
-           BlockType, 
-           TrialType) %>%
-  summarise(PSwitch = mean(ResponseSwitch),
-            RT = mean(RT)
-            )
-```
-
-And now, let;'s visualize
-
-```{r}
-ggplot(filter(aggregate, 
-              TrialType != "Neutral"), 
-       aes(x = TrialType, y = PSwitch, col = TrialType)) +
-  facet_wrap(~BlockType) +
-  geom_point(position = position_jitter(width = 0.1, height = 0.05),
-             alpha = 0.1) +
-  scale_color_brewer(palette = "Set2") +
-  stat_summary(fun.data = "mean_cl_boot", col="black") +
-
-  #geom_boxplot() +
-  theme_pander()
-         
-
-ggplot(filter(aggregate, 
-              TrialType != "Neutral"),
-       aes(x = TrialType, y = PSwitch, col = TrialType)) +
-  facet_wrap(~BlockType) +
-  scale_color_brewer(palette = "Set2") +
-  stat_summary(fun.data = "mean_cl_boot", col="black") +
-
-  #geom_boxplot() +
-  theme_pander()
-
-
-ggplot(filter(aggregate, 
-              TrialType != "Neutral"),
-       aes(x = TrialType, y = RT, col = TrialType)) +
-  facet_wrap(~BlockType) +
-  scale_color_brewer(palette = "Set2") +
-  stat_summary(fun.data = "mean_cl_boot", col="black") +
-
-  #geom_boxplot() +
-  theme_pander()
-
-ggplot(filter(aggregate, 
-              TrialType != "Neutral"),
-       aes(x = HCPID, y = PSwitch, col = TrialType)) +
-  facet_wrap(~BlockType) +
-  scale_color_brewer(palette = "Set2") +
-  stat_summary(fun.data = "mean_cl_boot", geom="point") +
-
-  #geom_boxplot() +
-  theme_pander()
-```
-
-
-```{r}
-summary(aov(PSwitch ~ (TrialType * BlockType) + Error(HCPID/(TrialType*BlockType)), aggregate)) 
-```
-
-Some participants might be always responding with the same key; let's get rid of them
+Since this task is boring and cannot be learned, some participants might get bored and always respond with the same key; let's get rid of them! First, let's count the percentage of responses by response type (0, 2, 3 or other):
 
 ```{r}
 totals <- gambling %>%
@@ -171,10 +93,9 @@ totals <- gambling %>%
 fishbait <- gambling %>%
   group_by(HCPID, 
            RunNumber, 
-           #BlockId, 
-           #BlockType, 
            Response) %>%
-  summarise(Percentage = length(Response)/32)
+  summarise(Percentage = length(Response)/32,
+            Num = length(Response))
 
 fishbait$Response <- factor(fishbait$Response)
 
@@ -182,7 +103,221 @@ ggplot(fishbait, aes(x=Percentage, fill=Response)) +
   geom_histogram(aes(fill=Response), 
                  col="white", binwidth = 1/32, 
                  alpha=0.5, position="stack") +
+  ggtitle("Response Prevalence by Session") +
+  scale_fill_aaas() +
+  facet_wrap(~ RunNumber) +
+  theme_pander()
+```
+
+Now, let's identify participants with extreme response rates in either session:
+
+```{r}
+nofly <- fishbait %>%
+  filter(Percentage > 28/32) %>%
+  select(HCPID) %>%
+  unique()
+```
+
+We can remove these "No Fly" participants from the entirety of data:
+
+```{r}
+gambling <- gambling %>%
+  filter(! HCPID %in% nofly$HCPID)
+```
+
+Now, we are going to further filter out all of the participants who have data only for one session.
+
+```{r}
+onesessions <- gambling %>%
+  group_by(HCPID, RunNumber) %>%
+  summarise(RunNumber = mean(RunNumber)) %>%
+  summarise(NumRuns = length(RunNumber)) %>%
+  filter(NumRuns == 1)
+
+gambling <- gambling %>%
+  filter(! HCPID %in% onesessions$HCPID)
+```
+
+
+# Compute win-stay probabilities
+
+Because in the Gambling task feedback is established in advance, there is no measure of participant  "accuracy" or participant "learning". So, how do we know that participants are responding to feedback?
+
+The most meaningful way to check whether participants change their behavior in response to feedback to by analyzing their Win-Stay, Lose-Shift (WSLS) probabilities. Basically, we calculate the probability of switching response after a Punishment and after a Reward response. To compute these metrics, we first need to create a function that, given a set of responses at times $t, t+1 \dots  t + n$, will return the corresponding set for next responses, given at times $t+1, t+2 ... t + n +1$.
+
+```{r}
+future_moves <- function(responses) {
+  c(responses[2:length(responses)], NA)
+}
+```
+
+For completeness, we also have a function that creates the list of _previous_ responses. These will be helpful in analyzing RTs.
+
+```{r}
+past_moves <- function(responses) {
+  c(NA, responses[1:length(responses)-1])
+}
+```
+
+We can now compute whether a particular event is followed by a switch (the next response is different) or stay (the next response is the same).
+
+```{r}
+gambling <- gambling %>%
+  group_by(HCPID, RunNumber, BlockId) %>%
+
+  mutate(CurrentResponse = Response,
+         FutureResponse = future_moves(Response),
+         PastResponse = past_moves(Response),
+         PreviousFeedback = past_moves(TrialType),
+         RT = QuestionMark.RT) %>%
+  filter(FutureResponse != 0) %>%
+  #filter(CurrentResponse != 0) %>%
+  mutate(ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1))   %>%
+  select(HCPID, RunNumber, BlockId, RT, Response, PastResponse,
+         CurrentResponse, FutureResponse, ResponseSwitch, BlockType, TrialType,
+         PreviousFeedback, FeedbackImage)
+```
+
+If we aggregate the _Switch_ measure across block and trial types, we obtain the mean probability of a switch after a Reward or a Punishment, by block. Before aggregating, we need to remove the 'no response' trials.
+
+```{r}
+aggregate <- gambling %>%
+  filter(Response != 0) %>%
+  filter(Response != 4) %>%
+  group_by(HCPID, 
+           #RunNumber, 
+           #BlockId, 
+           BlockType, 
+           TrialType,
+           #PreviousFeedback,
+           ) %>%
+  summarise(PSwitch = mean(ResponseSwitch),
+            RT = mean(RT)
+            )
+```
+
+And now, let's visualize the data.
+
+```{r}
+ggplot(aggregate,
+       aes(x = TrialType, y = PSwitch, col = TrialType)) +
+  facet_grid( ~ BlockType, labeller = label_both) +
+  geom_point(position = position_jitter(width = 0.1, height = 0.05),
+             alpha = 0.1) +
+  scale_color_brewer(palette = "Set2") +
+  stat_summary(fun.data = "mean_cl_boot", col="black") +
+  theme_pander()
+
+
+ggplot(aggregate,
+       aes(x = TrialType, y = PSwitch, col = TrialType)) +
+  facet_grid(~ BlockType) +
+  scale_color_brewer(palette = "Set2") +
+  stat_summary(fun.data = "mean_cl_boot") +
+  theme_pander()
+
+aggregate$BlockType <- factor(aggregate$BlockType)
+aggregate$TrialType <- factor(aggregate$TrialType)
+# ggplot(aggregate, 
+#        aes(x = PreviousFeedback, y = RT, col = BlockType)) +
+#   #facet_grid(~ RunNumber) +
+#   scale_color_brewer(palette = "Set2") +
+#   stat_summary(fun.data = "mean_cl_boot") +
+#   theme_pander()
+```
+
+
+## WSLS Analysis
+
+To analyze the data, we will remove the neutral trials, which are very few and do not appear in all blocks.
+
+```{r}
+noneutral <- aggregate %>%
+  filter(TrialType != "Neutral")
+noneutral$TrialType <- factor(noneutral$TrialType)
+```
+
+Now we can run a repeated measures ANOVA to see whether there is a significant effect.
+
+```{r}
+aov(PSwitch ~ BlockType * TrialType + 
+              Error(HCPID/(BlockType * TrialType)), 
+            noneutral)  %>%
+  anova_summary() %>%
+  xtable() %>%
+  kable(digits=4) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+So, there is not significant effect of feedback on WSLS probabilities.
+
+# Response Times
+
+Is there maybe an effect of feedback on RT? To do so, we need to re-aggregate the data dividing it by the feedback of the _previous_ trial.
+
+```{r}
+pf_aggregate <- gambling %>%
+  filter(! is.na(PreviousFeedback)) %>%
+  group_by(HCPID, 
+           #RunNumber, 
+           #BlockId, 
+           BlockType, 
+           #TrialType,
+           PreviousFeedback,
+           ) %>%
+  summarise(PSwitch = mean(ResponseSwitch),
+            RT = mean(RT)
+            )
+
+pf_aggregate$PreviousFeedback <- as_factor(pf_aggregate$PreviousFeedback)
+pf_aggregate$PreviousFeedback <- revalue(pf_aggregate$PreviousFeedback,
+                                         c("1"="Reward", 
+                                           "2"="Punishment", 
+                                           "3"="Neutral"))
+```
+
+And now, let's visualize the means and the distributions of all response times.
+
+```{r}
+ggplot(pf_aggregate, 
+       aes(x = PreviousFeedback, y = RT, col = PreviousFeedback)) +
+  facet_grid( ~ BlockType) +
+  geom_point(position = position_jitter(width = 0.1, height = 0.05),
+             alpha = 0.1) +
+  scale_color_brewer(palette = "Set2") +
+  stat_summary(fun.data = "mean_cl_boot", col="black") +
+  theme_pander()
+         
+
+ggplot(pf_aggregate, 
+       aes(x = PreviousFeedback, y = RT, col = PreviousFeedback)) +
+  facet_grid(~ BlockType) +
+  scale_color_brewer(palette = "Set2") +
+  stat_summary(fun.data = "mean_cl_boot") +
   theme_pander()
 ```
 
 
+## RT Analysis
+
+Like before, we will remove the neutral trials:
+
+```{r}
+pf_noneutral <- pf_aggregate %>%
+  filter(PreviousFeedback != "Neutral")
+pf_noneutral$PreviousFeedback <- as_factor(pf_noneutral$PreviousFeedback)
+```
+
+And we can run a repeated measures ANOVA to see whether there is a significant effect.
+
+```{r}
+aov(RT ~ BlockType * PreviousFeedback + 
+      Error(HCPID / (BlockType * PreviousFeedback)), 
+    pf_noneutral)  %>%
+  anova_summary() %>%
+  xtable() %>%
+  kable(digits=4) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+This time, both effects (but not their interaction) are significant.
