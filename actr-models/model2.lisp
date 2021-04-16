@@ -156,13 +156,18 @@
     ?imaginal>
       state    free
     ?manual>
-      state    free
+      preparation free
+      execution free
+      processor free
     ?visual>
       state    free
   ==>
     +manual>
-      cmd      press-key
-      key      "K"
+      ;cmd      press-key
+      ;key      "K"
+      cmd punch
+      finger index
+      hand right
     =goal>
       state    read-feedback  
     +visual>
@@ -182,13 +187,19 @@
     ?imaginal>
       state    free
     ?manual>
-      state    free
+      preparation free
+      execution free
+      processor free
     ?visual>
       state    free
   ==>
     +manual>
-      cmd      press-key
-      key      "F"
+      ;cmd      press-key
+      ;key      "F"
+      cmd punch
+      finger index
+      hand left
+
     =goal>
       state    read-feedback  
     +visual>
@@ -205,7 +216,11 @@
     =visual-location>
     ?visual>
       state    free
+    ?manual>
+      state free
    ==>
+    +manual>
+      cmd clear
     +visual>
       cmd      move-attention
       screen-pos =visual-location

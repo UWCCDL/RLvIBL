@@ -7,10 +7,14 @@ import actr
 import random
 import pandas as pd
 import pprint as p
+import os.path
+
 random.seed(0)
 
 # load model
-actr.load_act_r_model("/Users/cheryang/Documents/GitProject/RLvIBL/actr-models/model1.lisp")   # load the model
+#actr.load_act_r_model("/Users/cheryang/Documents/GitProject/RLvIBL/actr-models/model1.lisp")   # load the model
+
+actr.load_act_r_model(os.path.abspath("model2.lisp"))
 response = False
 response_time = False
 
