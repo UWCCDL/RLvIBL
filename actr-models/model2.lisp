@@ -12,7 +12,8 @@
 ;;; 
 ;;; Description :This reinforcement learning model simulates gambling task in HCP dataset.
 ;;; 
-;;; Bugs        : Fix RT issue. RT should be same across conditions
+;;; Bugs        : 4.16 Fixed RT issue. RT should be same across conditions
+;;;               Motor preparation
 ;;;
 ;;; To do       : 
 ;;; 
@@ -44,11 +45,14 @@
 ;;; Psudocode 
 ;;; 
 ;;; p attend-prob ()
+;;; p read-prob ()
 ;;; p guess-more ()
 ;;; p guess-less ()
 ;;; p detect-feedback()
 ;;; p encode-reward()
 ;;; p encode-punishment()
+;;; p encode-neutral()
+;;; p end-task()
 ;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -59,7 +63,7 @@
 (sgp :seed (200 4)               ; Fixed Randomness
      :er t                      ; Enable randomness
      :esc t                     ; Subsymbolic computations
-     :v t                     ; verbose TRUE
+     :v nil                     ; verbose TRUE
      :trace-detail low     
      :ult nil                   ; Utility Learning Trace
      :act nil                   ; Activation trace
@@ -145,7 +149,7 @@
 
 )
 
-(p press-more
+(p guess-more
     =goal>
       isa      goal
       state    testing
@@ -176,7 +180,7 @@
       guess    "K"
   )
 
-(p press-less
+(p guess-less
     =goal>
       isa      goal
       state    testing

@@ -39,7 +39,7 @@ def task(trials,human=False):
     return result
 
 
-def respond_to_key_press(model, key, test=True):
+def respond_to_key_press(model, key, test=False):
     """
     This function is set to monitor the output-key command, will be called whenever
     a key is pressed in the experiment window
@@ -56,7 +56,7 @@ def respond_to_key_press(model, key, test=True):
     if test: print("TEST: in respond_to_key_press: ", response, response_time)
 
 
-def do_experiment(trials, human=False):
+def do_experiment(trials, human=False, test=False):
     """
     This function run the experiment, and return simulated model behavior
     :param size:
@@ -113,7 +113,7 @@ def do_experiment(trials, human=False):
         # calculate RT
 
         result.append((feedback, block_type, response, time/1000.0))
-        print("TEST: (END)>>", "start:", start, ", response_time:", response_time, ", time:", time)
+        if test: print("TEST: (END)>>", "start:", start, ", response_time:", response_time, ", time:", time)
     return result
 
 
@@ -173,3 +173,7 @@ def test_unit1():
     sometrials=create_block()
     sometrials.sort()
     p.pprint(task(sometrials))
+
+def test_unit2():
+    trials=create_block()[0:2]
+    p.pprint(task(trials))
