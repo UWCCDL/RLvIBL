@@ -1,0 +1,257 @@
+---
+title: "gambling_model"
+author: "Cher"
+date: "4/15/2021"
+output:
+  html_document:
+    code_folding: hide
+    theme: yeti
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  word_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr)
+library(ggthemes)
+library(ggplot2)
+library(ggsci)
+library(tidyverse)
+library(xtable)
+library(kableExtra)
+library(pracma)  # imports Mode function
+library(rstatix)
+rm(list = ls())
+```
+
+# Load Model Data
+
+Description of two models: 
+
+Two simple models are implemented in ACT-R, performing the gambling task depending on two distinctive mechanisms.
+
+Model1: Declarative Model(SHOULD be instance leanring model, but now, it's just declrative based model). The model retrieves "WIN" memory about previous "GUESS" and "FEEDBACK". Depending on activtaions of memory, it decides whether to press "MORE" or "LESS" key. 
+TODO: figure out how to implement instance-based learning in Model1
+
+
+Model2: RL Models. The model compeltely relies on procedural memory, pressing "MORE"/"LESS" key. Then a feedback is given, it delivers either +1/-1/0 reward to the production, and the utility of all previous productions will be affected
+```{r}
+model1 <- read.csv("model1.csv")
+model2 <- read.csv("model2.csv")
+
+model1 <- model1 %>% rename (Trial = X, CurrentResponse=Response) %>%
+  mutate(CurrentResponse=ifelse(CurrentResponse=='l', 2, 3),
+         TrialType=case_when(TrialType == "win" ~ "Reward",
+                             TrialType == "lose" ~ "Punishment",
+                             TrialType == "neutral" ~ "Neutral",
+                             TRUE ~ "NA"),
+         BlockType=case_when(BlockType == "mostly_reward" ~ "Mostly Reward",
+                             BlockType == "mostly_punish" ~ "Mostly Punishment",
+                             TRUE ~ "NA"))
+
+model2 <- model2 %>% rename (Trial = X, CurrentResponse=Response) %>%
+  mutate(CurrentResponse=ifelse(CurrentResponse=='l', 2, 3),
+         TrialType=case_when(TrialType == "win" ~ "Reward",
+                             TrialType == "lose" ~ "Punishment",
+                             TrialType == "neutral" ~ "Neutral",
+                             TRUE ~ "NA"),
+         BlockType=case_when(BlockType == "mostly_reward" ~ "Mostly Reward",
+                             BlockType == "mostly_punish" ~ "Mostly Punishment",
+                             TRUE ~ "NA"))
+```
+
+# Compute win-stay probabilities
+
+```{r}
+future_moves <- function(responses) {
+  c(responses[2:length(responses)], NA)
+}
+past_moves <- function(responses) {
+  c(NA, responses[1:length(responses)-1])
+}
+
+
+model1 <- model1 %>%
+   mutate(FutureResponse = future_moves(CurrentResponse),
+         PastResponse = past_moves(CurrentResponse),
+         PreviousFeedback = past_moves(TrialType),
+         ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1))
+
+
+model2 <- model2 %>%
+   mutate(FutureResponse = future_moves(CurrentResponse),
+         PastResponse = past_moves(CurrentResponse),
+         PreviousFeedback = past_moves(TrialType),
+         ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1))
+
+```
+
+Let's look at the PSwitch and RT as a function of Current TrialType
+
+```{r}
+model1.aggregate <- model1 %>%
+  na.omit() %>%
+  group_by(BlockType, 
+           TrialType) %>%
+  summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+
+model2.aggregate <- model2 %>%
+  na.omit() %>%
+  group_by(BlockType, 
+           TrialType) %>%
+  summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+
+```
+
+
+```{r}
+PSwitch.aggplot <- function(aggregate.dat) {
+  res <- ggplot(aggregate.dat,
+       aes(x = TrialType, y = PSwitch, col = TrialType)) +
+  facet_grid( ~ BlockType, labeller = label_both) +
+  geom_point(position = position_jitter(width = 0.1, height = 0.05),
+             alpha = 0.9, size=3) +
+  scale_color_brewer(palette = "Set2") +
+  #stat_summary(fun.data = "mean_cl_boot", col="black") +
+  theme_pander()
+  return(res)
+}
+
+RT.aggplot <- function(aggregate.dat) {
+  res <- ggplot(aggregate.dat,
+       aes(x = TrialType, y = RT, col = TrialType)) +
+  facet_grid( ~ BlockType, labeller = label_both) +
+  geom_point(position = position_jitter(width = 0.1, height = 0.05),
+             alpha = 0.9, size=3) +
+  scale_color_brewer(palette = "Set2") +
+  #stat_summary(fun.data = "mean_cl_boot", col="black") +
+  theme_pander()
+  return(res)
+}
+
+```
+
+Let's visualize it 
+```{r}
+PSwitch.aggplot(model1.aggregate) + ggtitle("MODEL1")
+PSwitch.aggplot(model2.aggregate) + ggtitle("MODEL2")
+
+
+RT.aggplot(model1.aggregate) + ggtitle("MODEL1")
+RT.aggplot(model2.aggregate) + ggtitle("MODEL2")
+```
+
+### Summary of Pswitch vs. CurrentTrial
+
+Model1:
+
+- In Mostly Punishment Block, PSwitch(Reward) is not much different from PSwitch(Punishment), indicating like humans, the model has  no idea whether CurrentTrial is rewarding/punishing. 
+
+- In Mostly Rewarding Block, PSwitch(Punishment) is much lower than PSwitch(Reward), indicating the model overall tends to stay when get punished. 
+
+Model2:
+
+- In Mostly Punishment Block, PSwitch(Reward) is lower than PSwitch(Punishment), indicating that the model tends to stay on reward trials, while switch on punishment trials.   
+
+- In Mostly Rewarding Block, similar pattern is observed, PSwitch(Reward) is lower than PSwitch(Punishment), indicating the model overall tends to switching.
+
+
+### Summary of RT vs. CurrentTrial
+
+Model1:
+
+- Longer RT for reward trials in Mostly Punishment Blocks, indicating that rare instances of trials require more time to retrieve from memory.
+
+Model2:
+
+- In both Mostly Punishment Block and Mostly Rewarding Block, RT(Reward) is longer than RT(Punishment), indicating ?
+
+
+
+Next, let's look at the PSwitch and RT as a function of Previous Feedback
+```{r}
+model1.pf_aggregate <- model1 %>%
+  na.omit() %>%
+  group_by(BlockType, 
+           PreviousFeedback) %>%
+  summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+
+model2.pf_aggregate <- model2 %>%
+  na.omit() %>%
+  group_by(BlockType, 
+           PreviousFeedback) %>%
+  summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+```
+
+```{r}
+PSwitch.pfaggplot <- function(aggregate.dat) {
+  res <- ggplot(aggregate.dat,
+       aes(x = PreviousFeedback, y = PSwitch, col = PreviousFeedback)) +
+  facet_grid( ~ BlockType, labeller = label_both) +
+  geom_point(position = position_jitter(width = 0.1, height = 0.05),
+             alpha = 0.9, size=3) +
+  scale_color_brewer(palette = "Set2") +
+  #stat_summary(fun.data = "mean_cl_boot", col="black") +
+  theme_pander()
+  return(res)
+}
+
+RT.pfaggplot <- function(aggregate.dat) {
+  res <- ggplot(aggregate.dat,
+       aes(x = PreviousFeedback, y = RT, col = PreviousFeedback)) +
+  facet_grid( ~ BlockType, labeller = label_both) +
+  geom_point(position = position_jitter(width = 0.1, height = 0.05),
+             alpha = 0.9, size=3) +
+  scale_color_brewer(palette = "Set2") +
+  #stat_summary(fun.data = "mean_cl_boot", col="black") +
+  theme_pander()
+  return(res)
+}
+```
+Let's visualize it 
+```{r}
+PSwitch.pfaggplot(model1.pf_aggregate) + ggtitle("MODEL1")
+PSwitch.pfaggplot(model2.pf_aggregate) + ggtitle("MODEL2")
+
+
+RT.pfaggplot(model1.pf_aggregate) + ggtitle("MODEL1")
+RT.pfaggplot(model2.pf_aggregate)+ ggtitle("MODEL2")
+```
+
+
+### Summary of Pswicth vs. PreviousTrial
+
+Model1:
+
+- In Mostly Punishment Block, PSwitch(Reward) > PSwitch(Punishment), indicating the model tend to switch. 
+
+- In Mostly Rewarding Block, PSwitch(Reward) < PSwitch(Punishment), indicating the model tend to stay. 
+
+Model2:
+
+- In Mostly Punishment Block, PSwitch(Reward) < PSwitch(Punishment) indicating that Model 2 is actively switching to avoid punishment. When seeing a reward trial, it tends to stay.
+
+- In Mostly Rewarding Block, PSwitch(Reward) > PSwitch(Punishment), indicating ?.
+
+
+### Summary of RT vs. PreviousTrial
+
+Model1:
+
+- In Mostly Punishment Block, RT(Reward) > RT(Punishment), indicating the model needs more time to retrieve rare instances. 
+
+- In Mostly Rewarding Block, RT(Reward) < RT(Punishment)
+
+Model2:
+
+- In Mostly Punishment Block, RT(Reward) < RT(Punishment) indicating model always respond faster on rewarding trials
+
+- In Mostly Rewarding Block, RT(Reward) < RT(Punishment), indicating ?.
+
