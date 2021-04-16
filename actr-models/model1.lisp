@@ -12,9 +12,12 @@
 ;;; 
 ;;; Description :This instance-based learning model simulates gambling task in HCP dataset.
 ;;; 
-;;; Bugs        : 
+;;; Bugs        : 4.16 Fixed RT issue. RT should be same across conditions
+;;;                     Motor preparation
+;;;             : 4.16 Seperate productions. -imaginal> should be seperate from 
+;;;                     +imaginal>
 ;;;
-;;; To do       : TODO: do not put -imaginal> in encode-feedback
+;;; To do       : 
 ;;; 
 ;;; ----- History -----
 ;;;
@@ -46,9 +49,14 @@
 ;;; Psudocode 
 ;;; 
 ;;; p attend-prob ()
-;;; p retrieve-prob ()
-;;; p make-guess ()
-;;; p encode-feedback ()
+;;; p read-prob ()
+;;; p recall()
+;;; p cannot-recall()
+;;; p guess-more ()
+;;; p guess-less ()
+;;; p detect-feedback()
+;;; p encode-feedback()
+;;; p end-task()
 ;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -69,7 +77,7 @@
      :bll 0.5                  ; Base-Level-Learning
      ;:blc 0                    ; Base-Level-Constant
      ;:ol nil                   ; Optimal Learning
-     :ans 0.5                  ; Noise
+     :ans nil                  ; Noise
      :act t
      :ncnar nil
      ;---------- production parameters ----------
@@ -89,7 +97,7 @@
 ;;; --------- DM ---------
 (add-dm
  (start isa chunk) (attending-feedback isa chunk)
- (attending-probe isa chunk)
+ (attending-probe isa chunk) (pressing-key isa chunk) (encoding-feedback)
  (testing isa chunk) (read-feedback isa chunk)
  (win isa chunk) (lose isa chunk) (neutral) (M) (L)
  (goal isa goal state start)
@@ -157,22 +165,21 @@
       feedback nil  
     ?imaginal>
       state    free
-    ?manual>
-      state    free
+    ; ?manual>
+    ;   state    free
     ?visual>
       state    free
    ==>
-    +manual>
-      cmd      press-key
-      key      =g
+    ; +manual>
+    ;   cmd      press-key
+    ;   key      =g
     =goal>
-      state    read-feedback  ; rename to read-feedback
+      state    pressing-key
     +visual>
       cmd      clear
     *imaginal>
       guess    =g
 )
-
 
 (p cannot-recall
     =goal>
@@ -186,22 +193,83 @@
       state    free
     ?retrieval>
       buffer   failure
-    ?manual>
-      state    free
+    ; ?manual>
+    ;   state    free
     ?visual>
       state    free
    ==>
-    +manual>
-      cmd      press-key
-      key      "M"  
+    ; +manual>
+    ;   cmd      press-key
+    ;   key      "M"  
     =goal>
-      state    read-feedback
+      state    pressing-key
     +visual>
      cmd      clear
     *imaginal>
-      guess    "M"
+      guess    nil
 )
 
+(p guess-more
+    =goal>
+      isa      goal
+      state    pressing-key
+    =imaginal>
+      isa      trial
+      - guess    nil
+      feedback nil
+    ?imaginal>
+      state    free
+    ?manual>
+      preparation free
+      execution free
+      processor free
+  ==>
+    +manual>
+      ;cmd      press-key
+      ;key      "K"
+      cmd punch
+      finger index
+      hand right
+    =goal>
+      state    read-feedback
+    =imaginal>
+    ; +visual>
+    ;   cmd      clear
+    ; *imaginal>
+    ;   guess    "K"
+  )
+
+(p guess-less
+    =goal>
+      isa      goal
+      state    pressing-key
+    =imaginal>
+      isa      trial
+      - guess    nil
+      feedback nil
+    ?imaginal>
+      state    free
+    ?manual>
+      preparation free
+      execution free
+      processor free
+    ?visual>
+      state    free
+  ==>
+    +manual>
+      ;cmd      press-key
+      ;key      "F"
+      cmd punch
+      finger index
+      hand left
+    =goal>
+      state    read-feedback
+    =imaginal>
+    ; +visual>
+    ;   cmd      clear
+    ; *imaginal>
+    ;   guess    "F"
+  )
 
 ;;; detect feedback. wait for rge screen to change before doing anything
 (p detect-feedback
@@ -233,6 +301,8 @@
       guess     =g
       feedback nil
     ?visual>
+      state    free
+    ?imaginal>
       state    free
   ==>
    +imaginal>
