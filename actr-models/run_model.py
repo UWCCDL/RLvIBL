@@ -9,8 +9,8 @@ import pandas as pd
 import pprint as p
 random.seed(0)
 
-
-actr.load_act_r_model("/Users/cheryang/Documents/GitProject/RLvIBL/actr-models/model2.lisp")   # load the model
+# load model
+actr.load_act_r_model("/Users/cheryang/Documents/GitProject/RLvIBL/actr-models/model1.lisp")   # load the model
 response = False
 response_time = False
 
@@ -114,7 +114,16 @@ def do_experiment(trials, human=False):
 
 
 def create_block(num_trials=8, num_reward=6, num_punish=1, num_neutral=1, block_type="mostly_reward", shuffle=False):
-    #R1 block
+    """
+    This function create experiment stimuli by blocks
+    :param num_trials: number of trials =8
+    :param num_reward: number of reward trials =6 (Mostly Reward  Block)
+    :param num_punish: number of reward trials =1 (Mostly Reward  Block)
+    :param num_neutral: number of reward trials =1 (Mostly Reward  Block)
+    :param block_type: Mostly Reward  Block or Mostly Punishment  Block
+    :param shuffle: whether to randomly shuffle trials within blocks
+    :return: a block of trials (8)
+    """
     prob_list = ["?"] * num_trials
     feedback_list = ["win"] * num_reward + ["lose"] * num_punish + ["neutral"] * num_neutral
     block_list = [block_type] * num_trials
@@ -123,6 +132,11 @@ def create_block(num_trials=8, num_reward=6, num_punish=1, num_neutral=1, block_
     return trials
 
 def experiment(num_run=1):
+    """
+    This function call create_block() and task() to run experiment
+    :param num_run: default =1, but could be 2
+    :return: a dataframe of model outputs, with "TrialType", "BlockType", "Response", "RT" as columns
+    """
     #only one run
     trials = []
     for i in range(num_run):
@@ -136,6 +150,11 @@ def experiment(num_run=1):
     return model_result
 
 def print_averaged_results(model_data):
+    """
+    This function print aggregated results group by trial type
+    :param model_data: model output
+    :return: aggregated results
+    """
     # model_data = pd.DataFrame(model_data, columns=["feedback", "block_type", "response", "RT"])
     print()
     print(model_data.groupby("TrialType").mean())
@@ -143,6 +162,10 @@ def print_averaged_results(model_data):
     print(model_data["TrialType"].value_counts(normalize=True))
 
 def test_unit1():
+    """
+    This is a unit test for RL model RT. The goal is to test whether RL remained same regardless of conditions
+    :return:
+    """
     sometrials=create_block()
     sometrials.sort()
     p.pprint(task(sometrials))

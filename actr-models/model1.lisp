@@ -14,7 +14,7 @@
 ;;; 
 ;;; Bugs        : 
 ;;;
-;;; To do       : Revise encode-feedback
+;;; To do       : TODO: do not put -imaginal> in encode-feedback
 ;;; 
 ;;; ----- History -----
 ;;;
@@ -234,28 +234,30 @@
       feedback nil
     ?visual>
       state    free
-    ?imaginal>
-      state    free
   ==>
    +imaginal>
       isa      history
       probe     =p
       guess     =g
       outcome   =val
-   -imaginal>
-   ;;; not sure if this is the right way to encode a memory
-   ;+retrieval>
-   ;   isa      history
-   ;   guess     =g
-   ;   feedback   =val
    =goal>
-      state    start
+      state    encoding-feedback
    +visual>
       cmd      clear
-  !output! "in encode feedback"
-  !output! =val 
-  !output! =g
 )
+
+(p end-task
+    =goal>
+        isa      goal
+        state    encoding-feedback
+    ?imaginal>
+        state    free
+  ==>
+    -imaginal>
+    =goal>
+        state    start
+  )
+
 
 (goal-focus goal)
 )
