@@ -11,19 +11,63 @@ import os.path
 
 random.seed(0)
 
-# load model
-#actr.load_act_r_model("/Users/cheryang/Documents/GitProject/RLvIBL/actr-models/model1.lisp")   # load the model
-
-actr.load_act_r_model(os.path.abspath("model2.lisp"))
 response = False
 response_time = False
 
-def task(trials,human=False):
+#################### LOAD MODEL ####################
+model = "model1"
+if model=="model1":
+    actr.load_act_r_model(os.path.abspath("model1.lisp"))
+elif model=="model2":
+    actr.load_act_r_model(os.path.abspath("model2.lisp"))
+
+#################### PARAMETER SET ####################
+def set_parameters(**kwargs):
+    """
+    set parameter to current model
+    :param kwargs: dict pair, indicating the parameter name and value (e.g. ans=0.1, r1=1, r2=-1)
+    :return:
+    """
+    # actr.reset() # this step makes sure current model getting rid of chunks and productions
+                 # then new parameter can be set
+    for key, value in kwargs.items():
+        # # set reward parameter
+        # if key=='r1':
+        #     actr.spp('encode-reward', ':reward', value)
+        # elif key=='r2':
+        #     actr.spp('encode-punishment', ':reward', value)
+        # normal parameters
+        actr.set_parameter_value(':' + key, value)
+
+def get_parameter(param_name):
+    """
+    get parameter from current model
+    :param keys: string, the parameter name (e.g. ans, bll, r1, r2)
+    :return:
+    """
+    assert param_name in ("ans", "bll", "lf", "egs", "alpha")
+    # if param_name in ("r1", "r2"):
+    #     param_reward = [x[0] for x in actr.spp(':reward') if x != [None]]
+    #     if param_name == "r1":
+    #         prarm_value = max(param_reward)
+    #     else:
+    #         prarm_value = min(param_reward)
+    # else:
+    return actr.get_parameter_value(":"+param_name)
+
+def get_parameters_name():
+    if actr.current_model() == "MODEL1":
+        param_names = ['ans', 'bll', 'lf']
+    elif actr.current_model() == "MODEL2":
+        param_names = ['alpha', 'egs', 'r1', 'r2']
+    return param_names
+
+#################### TASK ####################
+def task(trials):
     """
     This function present task and monitor response from model
     :param size: number of trials to present
     :param trials: the trial list
-    :param human: whether run a person or a model
     :return:
     """
 
@@ -32,7 +76,7 @@ def task(trials,human=False):
                      "Paired associate task key press response monitor")
     actr.monitor_command("output-key","paired-response")
 
-    result = do_experiment(trials,human)
+    result = do_experiment(trials)
 
     actr.remove_command_monitor("output-key","paired-response")
     actr.remove_command("paired-response")
@@ -56,7 +100,37 @@ def respond_to_key_press(model, key, test=False):
     if test: print("TEST: in respond_to_key_press: ", response, response_time)
 
 
-def do_experiment(trials, human=False, test=False):
+def do_guess(prompt, window):
+
+    # display prompt
+    actr.clear_exp_window(window)
+    actr.add_text_to_exp_window(window, prompt, x=150, y=150)
+
+    # wait for response
+    global response
+    response = ''
+
+    start = actr.get_time(model)
+    actr.run_full_time(5)
+    time = response_time - start
+
+    return response, time
+
+def do_feedback(feedback, window):
+
+    actr.clear_exp_window(window)
+    actr.add_text_to_exp_window(window, feedback, x=150, y=150)
+
+    actr.run_full_time(5)
+
+    # implement reward
+    if actr.current_model() == "MODEL2":
+        if feedback == "win":
+            actr.trigger_reward(100)
+        elif feedback == "lose":
+            actr.trigger_reward(-100)
+
+def do_experiment(trials, test=False, feedback_test=True):
     """
     This function run the experiment, and return simulated model behavior
     :param size:
@@ -64,56 +138,32 @@ def do_experiment(trials, human=False, test=False):
     :param human:
     :return:
     """
+    #TODO: need to comment if seperate to core and body script
     actr.reset()
 
     result = []
-    model = not (human)
-    window = actr.open_exp_window("Gambling Experiment", visible=human)
 
-    if model:
-        actr.install_device(window)
+    window = actr.open_exp_window("Gambling Experiment", visible=False)
+    actr.install_device(window)
 
     for trial in trials:
         # time = 0
         prompt, feedback, block_type = trial
 
-        # display prompt
-        actr.clear_exp_window(window)
-        actr.add_text_to_exp_window(window, prompt, x=150, y=150)
+        # guess
+        response, time = do_guess(prompt, window)
 
-        # wait for response
-        global response
-        response = ''
-        start = actr.get_time(model)
-        # print("TEST: (START)>>", "start:", start, ", response_time:", response_time)
+        # this  test is to see if model can learn feedback
+        if feedback_test:
+            if response=="f":
+                feedback="win"
+            else:
+                feedback="lose"
 
-        if model:
-            actr.run_full_time(5)
-        else:
-            while (actr.get_time(False) - start) < 5000:
-                actr.process_events()
-        time = response_time - start
-
-        # print("TEST: ", "feedback start, actr time", actr.get_time())
-
-        # display feedback
-        actr.clear_exp_window(window)
-        actr.add_text_to_exp_window(window, feedback, x=150, y=150)
-        # start = actr.get_time(model)
-
-        if model:
-            actr.run_full_time(5)
-        else:
-            while (actr.get_time(False) - start) < 5000:
-                actr.process_events()
-
-        # print("TEST: ", "trial ends, actr time", actr.get_time())
-
-        # report data
-        # calculate RT
-
+        # encode feedback
+        do_feedback(feedback, window)
         result.append((feedback, block_type, response, time/1000.0))
-        if test: print("TEST: (END)>>", "start:", start, ", response_time:", response_time, ", time:", time)
+
     return result
 
 
@@ -159,21 +209,60 @@ def print_averaged_results(model_data):
     :param model_data: model output
     :return: aggregated results
     """
-    # model_data = pd.DataFrame(model_data, columns=["feedback", "block_type", "response", "RT"])
-    print()
     print(model_data.groupby("TrialType").mean())
     print()
     print(model_data["TrialType"].value_counts(normalize=True))
+    print()
+    print(model_data.groupby("Response").mean())
+    print()
+    print(model_data["Response"].value_counts(normalize=True))
 
 def test_unit1():
     """
     This is a unit test for RL model RT. The goal is to test whether RL remained same regardless of conditions
     :return:
     """
+    actr.load_act_r_model(os.path.abspath("model1.lisp"))
     sometrials=create_block()
     sometrials.sort()
     p.pprint(task(sometrials))
 
 def test_unit2():
-    trials=create_block()[0:2]
-    p.pprint(task(trials))
+    """ This unit test is to observe single/two trials"""
+    actr.load_act_r_model(os.path.abspath("model1.lisp"))
+    trials=create_block()[0]
+    p.pprint(task([trials]))
+
+def test_unit3():
+    """this test unit examines trace"""
+    #actr.load_act_r_model(os.path.abspath("model1_core.lisp"))
+    actr.reset()
+    trial = create_block()[0]
+    prompt, feedback, block_type = trial
+
+    window = actr.open_exp_window("Gambling Experiment", visible=False)
+    actr.install_device(window)
+    actr.clear_exp_window(window)
+    actr.add_text_to_exp_window(window, prompt, x=150, y=150)
+    actr.run_full_time(5)
+
+    actr.clear_exp_window(window)
+    actr.add_text_to_exp_window(window, feedback, x=150, y=150)
+    actr.run_full_time(5)
+
+def test_unit4():
+    "This test unit is to see if :lf can scale RT"
+    actr.load_act_r_model(os.path.abspath("model1.lisp"))
+    print_averaged_results(experiment())
+
+def test_unit5():
+    "This test is to see if model1 can learn from feedback"
+    actr.load_act_r_model(os.path.abspath("model2.lisp"))
+    print_averaged_results(experiment())
+
+
+
+
+
+
+
