@@ -8,19 +8,23 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 
 ;;; Filename    :model1_body.py
-;;; Version     :v2.0
+;;; Version     :v2.1
 ;;; 
 ;;; Description :This declarative model simulates gambling task in HCP dataset.
 ;;; 
-;;; Bugs        : 4.16 Fixed RT issue. RT should be same across conditions
+;;; Bugs        : 4.16 1) Fixed RT issue. RT should be same across conditions
 ;;;                     Motor preparation
-;;;             : 4.16 Seperate productions. -imaginal> should be seperate from 
+;;;             :      2) Seperated productions. -imaginal> should be seperate from
 ;;;                     +imaginal>
-;;;             : 4.18 Seperate core.lisp and body.lisp code of model1. 
-;;;                    The parameter setting is now working 
+;;;             :      3) Added consistent productions as model2
+;;;                     guess-more and guess-less
+;;;             : 4.18 1) Seperated core.lisp and body.lisp code of model1.
+;;;                    The parameter setting is now working
+;;;             : 4.19 1) Fixed parameter setting
+;;;             :      2) add evaluate-more and evaluate less 
 ;;;
 ;;;
-;;; To do       : 
+;;; To do       : TODO: model1 does not learning feedback; model1 does not change guess
 ;;; 
 ;;; ----- History -----
 ;;;
@@ -63,25 +67,29 @@
 ;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;; --------- RANDOM SEED ---------
+;(sgp :seed (100 4))
+
 ;;; --------- CHUNK TYPE ---------
 (chunk-type goal state)
-(chunk-type trial probe guess feedback)
-(chunk-type history probe guess feedback outcome)
+; (chunk-type trial probe guess feedback)
+(chunk-type history probe guess feedback)
 
 
 ;;; --------- DM ---------
 (add-dm
  (start isa chunk) (attending-feedback isa chunk)
- (attending-probe isa chunk) (pressing-key isa chunk) (encoding-feedback)
- (testing isa chunk) (read-feedback isa chunk)
+ (attending-probe isa chunk) (pressing-key isa chunk) 
+ (encoding-feedback isa chunk) (read-feedback isa chunk)
+ (evaluating-history isa chunk)(recalling-history isa chunk) 
  (win isa chunk) (lose isa chunk) (neutral) (M) (L)
  (goal isa goal state start)
- (win-history-M isa history probe ? guess M outcome win feedback "win")
- (win-history-L isa history probe ? guess L outcome win feedback "win")
- (lose-history-M isa history probe ? guess M outcome lose feedback "lose")
- (lose-history-L isa history probe ? guess L outcome lose feedback "lose")
- (neutral-history-M isa history probe ? guess M outcome neutral feedback "neutral")
- (neutral-history-L isa history probe ? guess L outcome neutral feedback "neutral")
+ (win-history-M isa history probe "?" guess M feedback "win")
+ (win-history-L isa history probe "?" guess L feedback "win")
+ (lose-history-M isa history probe "?" guess M feedback "lose")
+ (lose-history-L isa history probe "?" guess L feedback "lose")
+ (neutral-history-M isa history probe "?" guess M feedback "neutral")
+ (neutral-history-L isa history probe "?" guess L feedback "neutral")
  )
 
 ;;; --------- PRODUCTIONS ---------
@@ -113,31 +121,70 @@
       state    free
    ==>
     +imaginal>
-      isa      trial
-      probe    =val
-      guess    nil
-      feedback  nil
-    +retrieval>
       isa      history
-      ;probe    =val
-      outcome  win
+      probe    =val
+    ; +retrieval>
+    ;   isa      history
+    ;   feedback  "win"
     =goal>
-      state    testing
-
+      state    evaluating-history
 )
 
-(p recall
+(p evaluate-more
+  =goal>
+      isa      goal
+      state    evaluating-history
+  ?imaginal>
+      state    free
+  ?visual>
+      state    free
+  =imaginal>
+      isa     history
+      - probe   nil
+==>
+  =goal>
+      state    recalling-history
+  +visual>
+      cmd      clear
+  +retrieval>
+      isa      history
+      guess    M
+  =imaginal>
+  )
+
+(p evaluate-less
+  =goal>
+      isa      goal
+      state    evaluating-history
+  ?imaginal>
+      state    free
+  ?visual>
+      state    free
+  =imaginal>
+      isa     history
+      - probe   nil
+==>
+  =goal>
+      state    recalling-history
+  +visual>
+      cmd      clear
+  +retrieval>
+      isa      history
+      guess    L
+  =imaginal>
+  )
+
+(p recall-win
     =goal>
       isa      goal
-      state    testing
+      state    recalling-history
     =retrieval>
-      isa     history
-      outcome  win
-      guess    =g
+      isa       history
+      feedback  "win"
+      guess     =g
     =imaginal>
-      isa      trial
-      guess    nil
-      feedback nil  
+      isa      history
+      - probe  nil
     ?imaginal>
       state    free
     ; ?manual>
@@ -156,32 +203,71 @@
       guess    =g
 )
 
+(p recall-lose-M
+    =goal>
+      isa      goal
+      state    recalling-history
+    =retrieval>
+      isa       history
+      feedback  "lose"
+      guess     M
+    =imaginal>
+      isa      history
+      - probe  nil
+    ?imaginal>
+      state    free
+    ?visual>
+      state    free
+   ==>
+    =goal>
+      state    pressing-key
+    +visual>
+      cmd      clear
+    *imaginal>
+      guess    L ; reverse
+)
+
+(p recall-lose-L
+    =goal>
+      isa      goal
+      state    recalling-history
+    =retrieval>
+      isa       history
+      feedback  "lose"
+      guess     L
+    =imaginal>
+      isa      history
+      - probe  nil
+    ?imaginal>
+      state    free
+    ?visual>
+      state    free
+   ==>
+    =goal>
+      state    pressing-key
+    +visual>
+      cmd      clear
+    *imaginal>
+      guess    M ; reverse
+)
+
 (p cannot-recall
     =goal>
       isa      goal
-      state    testing
-    =imaginal>
-      isa      trial
-      guess    nil
-      feedback nil 
+      state    recalling-history
     ?imaginal>
       state    free
     ?retrieval>
       buffer   failure
-    ; ?manual>
-    ;   state    free
     ?visual>
       state    free
    ==>
-    ; +manual>
-    ;   cmd      press-key
-    ;   key      "M"  
     =goal>
       state    pressing-key
     +visual>
      cmd      clear
-    *imaginal>
-      guess    nil
+    ; *imaginal>
+    ;   guess    nil 
 )
 
 (p guess-more
@@ -189,9 +275,10 @@
       isa      goal
       state    pressing-key
     =imaginal>
-      isa      trial
+      isa      history
+      - probe  nil
       guess    M
-      feedback nil
+      ;feedback nil
     ?imaginal>
       state    free
     ?manual>
@@ -208,10 +295,6 @@
     =goal>
       state    read-feedback
     =imaginal>
-    ; +visual>
-    ;   cmd      clear
-    ; *imaginal>
-    ;   guess    "K"
   )
 
 (p guess-less
@@ -219,9 +302,10 @@
       isa      goal
       state    pressing-key
     =imaginal>
-      isa      trial
+      isa      history
+      - probe   nil
       guess    L
-      feedback nil
+      ;feedback nil
     ?imaginal>
       state    free
     ?manual>
@@ -240,10 +324,6 @@
     =goal>
       state    read-feedback
     =imaginal>
-    ; +visual>
-    ;   cmd      clear
-    ; *imaginal>
-    ;   guess    "F"
   )
 
 ;;; detect feedback. wait for rge screen to change before doing anything
@@ -270,19 +350,16 @@
       isa      visual-object
       value    =val
     =imaginal>
-      isa      trial
-      probe     =p
-      guess     =g
+      isa      history
+      - probe     nil
+      - guess     nil
       feedback nil
     ?visual>
       state    free
     ?imaginal>
       state    free
   ==>
-   +imaginal>
-      isa      history
-      probe     =p
-      guess     =g
+   *imaginal>
       feedback   =val
    =goal>
       state    encoding-feedback

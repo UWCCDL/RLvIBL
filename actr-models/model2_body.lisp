@@ -59,7 +59,6 @@
 
 ;;; --------- CHUNK TYPE ---------
 (chunk-type goal state)
-(chunk-type trial probe guess)
 (chunk-type history probe guess feedback outcome)
 
 

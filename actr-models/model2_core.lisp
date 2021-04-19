@@ -22,7 +22,7 @@
 (sgp ;:seed (200 4)               ; Fixed Randomness
      :er t                      ; Enable randomness
      :esc t                     ; Subsymbolic computations
-     :v t                     ; verbose TRUE
+     :v nil                     ; verbose TRUE
      :trace-detail low     
      :ult nil                   ; Utility Learning Trace
      :act nil                   ; Activation trace
