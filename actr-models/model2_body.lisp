@@ -59,7 +59,7 @@
 
 ;;; --------- CHUNK TYPE ---------
 (chunk-type goal state)
-(chunk-type history probe guess feedback outcome)
+(chunk-type history probe guess feedback)
 
 
 ;;; --------- DM ---------
@@ -70,12 +70,12 @@
  (win isa chunk) (lose isa chunk) 
  (neutral isa chunk) (M isa chunk) (L isa chunk)
  (goal isa goal state start)
- (win-history-M isa history probe "?" guess M outcome win feedback "win")
- (win-history-L isa history probe "?" guess L outcome win feedback "win")
- (lose-history-M isa history probe "?" guess M outcome lose feedback "lose")
- (lose-history-L isa history probe "?" guess L outcome lose feedback "lose")
- (neutral-history-M isa history probe "?" guess M outcome neutral feedback "neutral")
- (neutral-history-L isa history probe "?" guess L outcome neutral feedback "neutral")
+ (win-history-M isa history probe "?" guess M feedback "win")
+ (win-history-L isa history probe "?" guess L feedback "win")
+ (lose-history-M isa history probe "?" guess M feedback "lose")
+ (lose-history-L isa history probe "?" guess L feedback "lose")
+ (neutral-history-M isa history probe "?" guess M feedback "neutral")
+ (neutral-history-L isa history probe "?" guess L feedback "neutral")
  )
 
 
@@ -108,12 +108,12 @@
       state    free
    ==>
     +imaginal>
-      isa      trial
+      isa      history
       probe    =val
     +retrieval>
       isa      history
       probe    =val
-      outcome  win
+      feedback  "win"
     =goal>
       state    pressing-key
 
@@ -124,7 +124,7 @@
       isa      goal
       state    pressing-key
     =imaginal>
-      isa      trial
+      isa      history
       guess    nil
     ?imaginal>
       state    free
@@ -154,7 +154,7 @@
       isa      goal
       state    pressing-key
     =imaginal>
-      isa      trial
+      isa      history
       guess    nil
     ?imaginal>
       state    free
@@ -207,7 +207,7 @@
       isa      visual-object
       value    =val
     =imaginal>
-      isa      trial
+      isa      history
       probe     =p
       guess     =g
     ?visual>

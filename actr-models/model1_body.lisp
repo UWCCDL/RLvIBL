@@ -21,10 +21,13 @@
 ;;;             : 4.18 1) Seperated core.lisp and body.lisp code of model1.
 ;;;                    The parameter setting is now working
 ;;;             : 4.19 1) Fixed parameter setting
-;;;             :      2) add evaluate-more and evaluate less 
+;;;             :      2) added evaluate-more and evaluate less
+;;;             :      3) fixed model1 learning bug. model1 does learn, but less flexible
+;;;             :      4)
+
 ;;;
 ;;;
-;;; To do       : TODO: model1 does not learning feedback; model1 does not change guess
+;;; To do       : TODO: null RT issue -> neutral trials
 ;;; 
 ;;; ----- History -----
 ;;;
@@ -209,7 +212,7 @@
       state    recalling-history
     =retrieval>
       isa       history
-      feedback  "lose"
+      - feedback  "win"  ; include neutral memory
       guess     M
     =imaginal>
       isa      history
@@ -233,7 +236,7 @@
       state    recalling-history
     =retrieval>
       isa       history
-      feedback  "lose"
+      - feedback  "win"
       guess     L
     =imaginal>
       isa      history
@@ -277,7 +280,7 @@
     =imaginal>
       isa      history
       - probe  nil
-      guess    M
+      - guess    L
       ;feedback nil
     ?imaginal>
       state    free
@@ -302,9 +305,9 @@
       isa      goal
       state    pressing-key
     =imaginal>
-      isa      history
+      isa       history
       - probe   nil
-      guess    L
+      - guess   M   ; this allows nil to press less
       ;feedback nil
     ?imaginal>
       state    free

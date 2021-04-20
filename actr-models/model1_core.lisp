@@ -19,20 +19,20 @@
 (define-model model1
 
 ;;; --------- PARAMETERS ---------
-(sgp ;:seed (1 2)               ; Fixed Randomness
+(sgp ;:seed (100 4)               ; Fixed Randomness
      :er t                      ; Enable randomness
      :esc t                     ; Subsymbolic computations
-     :v t                     ; verbose TRUE
+     :v nil                     ; verbose TRUE
      :trace-detail low     
      :ult nil                   ; Utility Learning Trace
      :act t                     ; Activation trace
      ;---------- activation parameters (3) ----------
      :rt -10                     ; Retrieval Threshold
-     :lf 2                   ; Decay Rate
-     :bll 0.5                  ; Base-Level-Learning
-     ;:blc 0                    ; Base-Level-Constant
+     :lf .7                   ; Decay Rate
+     :bll .7                  ; Base-Level-Learning
+     ;:blc 1                    ; Base-Level-Constant
      ;:ol nil                   ; Optimal Learning
-     :ans .1                  ; Noise
+     :ans .7                  ; Noise
      :act t
      :ncnar nil
      ;---------- production parameters ----------
