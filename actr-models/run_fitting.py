@@ -22,7 +22,7 @@ import pprint as p
 
 subjs = pd.read_csv("../bin/gambling_clean_data.csv", index_col=0)
 #################### LOAD DATA ####################
-def load_subj(subjs, HCPID):
+def load_subj(HCPID):
     return reformat_humam_data(subjs[subjs['HCPID'] == HCPID])
 
 #################### REFORMAT DATA ####################
@@ -117,7 +117,7 @@ def fit_simulation(param_array, HCPID, model, epoch = 50):
 def model1_target_func(param_array, HCPID):
     # simulate model1 10 time using HCPID=100307_fnca
     # param_grid = list(ParameterGrid({'ans': [.1, .9], 'lf': [.1, .9], "bll": [.1, .9]}))
-    assert isinstance(param_array, list) & isinstance(HCPID, str)
+    #assert isinstance(param_array, list) & isinstance(HCPID, str)
 
     # decide parameter set
     param_set = {"ans":param_array[0], "bll":param_array[1], "lf":param_array[2]}
@@ -135,7 +135,7 @@ def model1_target_func(param_array, HCPID):
     return rmse
 
 def model2_target_func(param_array, HCPID):
-    assert isinstance(param_array, list) & isinstance(HCPID, str)
+    #assert isinstance(param_array, list) & isinstance(HCPID, str)
 
     # decide parameter set
     param_set = {"egs": param_array[0], "alpha": param_array[1], "r": param_array[2]}
@@ -154,7 +154,7 @@ def model2_target_func(param_array, HCPID):
 def estimate_param_model1(HCPID):
     init = [.1, .1, .1]  #:ans       :bll        :lf
     bounds = [(0, 5), (0, 1), (0, 5)]
-    minmum = optimize.minimize(model1_target_func, init, args=(HCPID),method='Powell', tol=1e-5, bounds=bounds,
+    minmum = optimize.minimize(model1_target_func, init, args=(HCPID), method='Powell', tol=1e-5, bounds=bounds,
                                  options={"maxiter": 200, "ftol": 0.0001, "xtol": 0.0001, "disp": True,
                                           "return_all": True})
     return minmum
