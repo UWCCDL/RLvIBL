@@ -2,42 +2,55 @@
 #   Author: Cher Yang
 #   Date: 4/14/2021
 # This template provides a init python code for building an ACT-R model
+#
+# Bugs: 4.19 loading model is not always working. could be due to actr.reset() and actr.reload()
+#
+# TODO: reload model every block or very run? will make difference?
+# TOOD: add BlockTrial column
+#
+###################### ####################### #######################
+
 
 import actr
 import random
+import time
 import pandas as pd
 import pprint as p
 import os.path
+from sklearn.model_selection import ParameterGrid
+
 
 random.seed(0)
 
 response = False
 response_time = False
+reward = 0
 
-#################### LOAD MODEL ####################
-model = "model1"
-if model=="model1":
-    actr.load_act_r_model(os.path.abspath("model1.lisp"))
-elif model=="model2":
-    actr.load_act_r_model(os.path.abspath("model2.lisp"))
+
+
+#################### LOAD MODEL CORE ####################
+def load_model(model="model1", param_set=None):
+    actr.load_act_r_model(os.path.abspath(model+"_core.lisp"))
+    # load new pramsets
+    if param_set: set_parameters(**param_set)
+    reward = 0 # init value
+    actr.load_act_r_model(os.path.abspath(model+"_body.lisp"))
+    print("######### LOADED MODEL " +model+ " #########")
+
+def check_load(model="model1"):
+    has_model = actr.current_model().lower() == model
+    has_productions = actr.all_productions() != None
+    return has_model & has_productions
+
 
 #################### PARAMETER SET ####################
-def set_parameters(**kwargs):
-    """
-    set parameter to current model
-    :param kwargs: dict pair, indicating the parameter name and value (e.g. ans=0.1, r1=1, r2=-1)
-    :return:
-    """
-    # actr.reset() # this step makes sure current model getting rid of chunks and productions
-                 # then new parameter can be set
-    for key, value in kwargs.items():
-        # # set reward parameter
-        # if key=='r1':
-        #     actr.spp('encode-reward', ':reward', value)
-        # elif key=='r2':
-        #     actr.spp('encode-punishment', ':reward', value)
-        # normal parameters
-        actr.set_parameter_value(':' + key, value)
+
+def get_parameters_name():
+    if actr.current_model() == "MODEL1":
+        param_names = ['ans', 'bll', 'lf']
+    elif actr.current_model() == "MODEL2":
+        param_names = ['alpha', 'egs', 'r']
+    return param_names
 
 def get_parameter(param_name):
     """
@@ -45,24 +58,29 @@ def get_parameter(param_name):
     :param keys: string, the parameter name (e.g. ans, bll, r1, r2)
     :return:
     """
-    assert param_name in ("ans", "bll", "lf", "egs", "alpha")
-    # if param_name in ("r1", "r2"):
-    #     param_reward = [x[0] for x in actr.spp(':reward') if x != [None]]
-    #     if param_name == "r1":
-    #         prarm_value = max(param_reward)
-    #     else:
-    #         prarm_value = min(param_reward)
-    # else:
-    return actr.get_parameter_value(":"+param_name)
+    assert param_name in ("ans", "bll", "lf", "egs", "alpha", "r")
+    if param_name=="r": return reward
+    else: return actr.get_parameter_value(":"+param_name)
 
-def get_parameters_name():
-    if actr.current_model() == "MODEL1":
-        param_names = ['ans', 'bll', 'lf']
-    elif actr.current_model() == "MODEL2":
-        param_names = ['alpha', 'egs', 'r1', 'r2']
-    return param_names
+def get_parameters(*kwargs):
+    param_set = {}
+    for param_name in kwargs:
+        param_set[param_name] = get_parameter(param_name)
+    return param_set
+
+def set_parameters(**kwargs):
+    """
+    set parameter to current model
+    :param kwargs: dict pair, indicating the parameter name and value (e.g. ans=0.1, r1=1, r2=-1)
+    :return:
+    """
+    global reward
+    for key, value in kwargs.items():
+        if key == "r": reward = value
+        else: actr.set_parameter_value(':' + key, value)
 
 #################### TASK ####################
+
 def task(trials):
     """
     This function present task and monitor response from model
@@ -82,7 +100,6 @@ def task(trials):
     actr.remove_command("paired-response")
     return result
 
-
 def respond_to_key_press(model, key, test=False):
     """
     This function is set to monitor the output-key command, will be called whenever
@@ -99,8 +116,13 @@ def respond_to_key_press(model, key, test=False):
     response = key
     if test: print("TEST: in respond_to_key_press: ", response, response_time)
 
-
 def do_guess(prompt, window):
+    """
+    this function allows model to do first half of the experiment, guessing
+    :param prompt:"?"
+    :param window:
+    :return: response "f" for less, or "j" for more
+    """
 
     # display prompt
     actr.clear_exp_window(window)
@@ -110,13 +132,19 @@ def do_guess(prompt, window):
     global response
     response = ''
 
-    start = actr.get_time(model)
+    start = actr.get_time()
     actr.run_full_time(5)
     time = response_time - start
 
     return response, time
 
 def do_feedback(feedback, window):
+    """
+    This  function allows the model to encode feedback
+    :param feedback: "win" or "lose"
+    :param window:
+    :return:
+    """
 
     actr.clear_exp_window(window)
     actr.add_text_to_exp_window(window, feedback, x=150, y=150)
@@ -125,12 +153,12 @@ def do_feedback(feedback, window):
 
     # implement reward
     if actr.current_model() == "MODEL2":
-        if feedback == "win":
-            actr.trigger_reward(100)
-        elif feedback == "lose":
-            actr.trigger_reward(-100)
+        if feedback == "Reward":
+            actr.trigger_reward(reward)
+        elif feedback == "Punishment":
+            actr.trigger_reward(-1.0*reward)
 
-def do_experiment(trials, test=False, feedback_test=True):
+def do_experiment(trials, test=False):
     """
     This function run the experiment, and return simulated model behavior
     :param size:
@@ -139,7 +167,7 @@ def do_experiment(trials, test=False, feedback_test=True):
     :return:
     """
     #TODO: need to comment if seperate to core and body script
-    actr.reset()
+    # actr.reset()
 
     result = []
 
@@ -154,20 +182,15 @@ def do_experiment(trials, test=False, feedback_test=True):
         response, time = do_guess(prompt, window)
 
         # this  test is to see if model can learn feedback
-        if feedback_test:
-            if response=="f":
-                feedback="win"
-            else:
-                feedback="lose"
+        if test: feedback = test_unit5(response)
 
         # encode feedback
         do_feedback(feedback, window)
-        result.append((feedback, block_type, response, time/1000.0))
+        result.append((feedback, block_type, response, time))
 
     return result
 
-
-def create_block(num_trials=8, num_reward=6, num_punish=1, num_neutral=1, block_type="mostly_reward", shuffle=False):
+def create_block(num_trials=8, num_reward=6, num_punish=1, num_neutral=1, block_type="MostlyReward", shuffle=False):
     """
     This function create experiment stimuli by blocks
     :param num_trials: number of trials =8
@@ -179,28 +202,60 @@ def create_block(num_trials=8, num_reward=6, num_punish=1, num_neutral=1, block_
     :return: a block of trials (8)
     """
     prob_list = ["?"] * num_trials
-    feedback_list = ["win"] * num_reward + ["lose"] * num_punish + ["neutral"] * num_neutral
+    feedback_list = ["Reward"] * num_reward + ["Punishment"] * num_punish + ["Neutral"] * num_neutral
     block_list = [block_type] * num_trials
     trials = list(zip(prob_list, feedback_list, block_list))
     if shuffle: random.shuffle(trials)
     return trials
 
-def experiment(num_run=1):
+def create_stimuli(num_run=1):
+    trials = []
+    MR1 = create_block(8, 6, 1, 1, "MostlyReward", True) + create_block(8, 4, 2, 2, "MostlyReward", True)
+    MR2 = create_block(8, 6, 1, 1, "MostlyReward", True) + create_block(8, 4, 2, 2, "MostlyReward", True)
+    MP1 = create_block(8, 1, 6, 1, "MostlyPunishment", True) + create_block(8, 2, 4, 2, "MostlyPunishment", True)
+    MP2 = create_block(8, 1, 6, 1, "MostlyPunishment", True) + create_block(8, 2, 4, 2, "MostlyPunishment", True)
+    r1_trials = MR1 + MP1 + MP2 + MR2
+    r2_trials = MP1 + MR1 + MP2 + MR2
+
+    if num_run == 1:
+        trials = r1_trials
+    elif num_run == 2:
+        trials = r1_trials + r2_trials
+    else:
+        trials = None
+    return trials
+
+def load_stimuli(HCPID):
+    """
+    This function enables the model to simulate based on specific HCP subj  stimuli order being accessed
+    :param HCPID:
+    :return:
+    """
+    stim = pd.read_csv("../bin/gambling_trials/"+HCPID+".csv", usecols=["TrialType", "BlockType"])
+    stim["Probe"] = "?"
+    stim = stim[['Probe', 'TrialType', 'BlockType']]
+    trials = [tuple(x) for x in stim.to_numpy()]
+    return trials
+
+def experiment(model="model1", param_set=None, reload=True, stim_order=None):
     """
     This function call create_block() and task() to run experiment
     :param num_run: default =1, but could be 2
     :return: a dataframe of model outputs, with "TrialType", "BlockType", "Response", "RT" as columns
     """
     #only one run
-    trials = []
-    for i in range(num_run):
-        MR1 = create_block(8, 6, 1, 1, "mostly_reward", True) + create_block(8, 4, 2, 2, "mostly_reward", True)
-        MR2 = create_block(8, 6, 1, 1, "mostly_reward", True) + create_block(8, 4, 2, 2, "mostly_reward", True)
-        MP1 = create_block(8, 1, 6, 1, "mostly_punish", True) + create_block(8, 2, 4, 2, "mostly_punish", True)
-        MP2 = create_block(8, 1, 6, 1, "mostly_punish", True) + create_block(8, 2, 4, 2, "mostly_punish", True)
+    if reload: load_model(model=model, param_set=param_set)
 
-        trials += MR1+MR2+MP1+MP2
-    model_result = pd.DataFrame(task(trials), columns=["TrialType", "BlockType", "Response", "RT"])
+    # if provided stimuli order, use it
+    # otherwise, create psudorandom stim order
+    if stim_order==None: trials=create_stimuli()
+    else: trials = stim_order
+
+    model_result =  task(trials)
+
+    model_result = pd.DataFrame(model_result, columns=["TrialType", "BlockType", "Response", "RT"])
+    model_result["BlockTrial"] = list(range(0, 8)) * int(len(model_result)/8)
+    model_result["Trial"] = model_result.index
     return model_result
 
 def print_averaged_results(model_data):
@@ -217,27 +272,62 @@ def print_averaged_results(model_data):
     print()
     print(model_data["Response"].value_counts(normalize=True))
 
+#################### SIMULATION ####################
+
+def simulate(epoch, model, param_set=None, export=True, verbose=True, file_suffix="", HCPID=None):
+
+
+    # whether to load stimuli order or create random stimuli
+    trials=None
+    if HCPID:
+        trials = load_stimuli(HCPID)
+
+    model_output = []
+    for i in range(epoch):
+        simulation_start = time.time()
+        model_dat = experiment(model=model, param_set=param_set, reload=True, stim_order=trials) # reset
+
+        model_dat["Epoch"] = i
+        param_names = get_parameters_name()
+        for param_name in param_names:
+            model_dat[param_name]=get_parameter(param_name)
+
+        model_output.append(model_dat)
+        simulation_end = time.time()
+
+        if export:
+            fpath = './model_output/' + actr.current_model() + pd.to_datetime('now').strftime('%Y%m%d') + file_suffix +".csv"
+            model_dat.to_csv(fpath, mode='a', header=not(os.path.exists(fpath)), index=False)
+            print(">> exported")
+
+        if verbose:
+            p.pprint(model_dat.head())
+            print(">> running time", round(simulation_end-simulation_start, 2))
+    return model_output
+
+
+#################### TEST ####################
+
 def test_unit1():
     """
     This is a unit test for RL model RT. The goal is to test whether RL remained same regardless of conditions
     :return:
     """
-    actr.load_act_r_model(os.path.abspath("model1.lisp"))
+    assert check_load()
     sometrials=create_block()
     sometrials.sort()
     p.pprint(task(sometrials))
 
 def test_unit2():
     """ This unit test is to observe single/two trials"""
-    actr.load_act_r_model(os.path.abspath("model1.lisp"))
+    assert check_load()
     trials=create_block()[0]
     p.pprint(task([trials]))
 
 def test_unit3():
     """this test unit examines trace"""
-    #actr.load_act_r_model(os.path.abspath("model1_core.lisp"))
-    actr.reset()
-    trial = create_block()[0]
+    assert check_load()
+    trial = ('?', 'Punishment', 'MostlyReward')
     prompt, feedback, block_type = trial
 
     window = actr.open_exp_window("Gambling Experiment", visible=False)
@@ -251,15 +341,41 @@ def test_unit3():
     actr.run_full_time(5)
 
 def test_unit4():
+    assert check_load()
     "This test unit is to see if :lf can scale RT"
-    actr.load_act_r_model(os.path.abspath("model1.lisp"))
     print_averaged_results(experiment())
 
-def test_unit5():
+def test_unit5(model_resp):
     "This test is to see if model1 can learn from feedback"
-    actr.load_act_r_model(os.path.abspath("model2.lisp"))
-    print_averaged_results(experiment())
+    if (model_resp=="f"):
+        feedback = "Reward"
+    else:
+        feedback = "Punishment"
+    print("testing feedback learning", feedback)
+    print("delivered reward", reward)
+    return feedback
 
+def test_unit6():
+    "This test is to set param and simulate 10 times"
+    assert check_load("model1")
+    param_grid = list(ParameterGrid({'ans': [.2, .7], 'lf': [.2, .7], 'bll': [.2, .7]}))
+    epoch = 10
+    for param_set in param_grid:
+        simulate(epoch, model="model1", param_set=param_set)
+    return
+
+def test_unit7():
+    "This test is to set param and simulate 10 times"
+    assert check_load(model="model2")
+    param_grid = list(ParameterGrid({'egs': [.2, .7], 'alpha': [.2, .7], "r" : [.1, 10]}))
+    epoch = 10
+    for param_set in param_grid:
+        simulate(epoch, model="model2", param_set=param_set)
+    return
+
+def test_unit8():
+    """This test is to see if load stimuli func works"""
+    simulate(epoch=2, model="model1", param_set=None, export=True, verbose=True, file_suffix="test1", HCPID="100307_fnca")
 
 
 
