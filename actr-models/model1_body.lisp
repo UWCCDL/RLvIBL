@@ -87,12 +87,12 @@
  (evaluating-history isa chunk)(recalling-history isa chunk) 
  (win isa chunk) (lose isa chunk) (neutral) (M) (L)
  (goal isa goal state start)
- (win-history-M isa history probe "?" guess M feedback "win")
- (win-history-L isa history probe "?" guess L feedback "win")
- (lose-history-M isa history probe "?" guess M feedback "lose")
- (lose-history-L isa history probe "?" guess L feedback "lose")
- (neutral-history-M isa history probe "?" guess M feedback "neutral")
- (neutral-history-L isa history probe "?" guess L feedback "neutral")
+ (win-history-M isa history probe "?" guess M feedback "Reward")
+ (win-history-L isa history probe "?" guess L feedback "Reward")
+ (lose-history-M isa history probe "?" guess M feedback "Punishment")
+ (lose-history-L isa history probe "?" guess L feedback "Punishment")
+ (neutral-history-M isa history probe "?" guess M feedback "Neutral")
+ (neutral-history-L isa history probe "?" guess L feedback "Neutral")
  )
 
 ;;; --------- PRODUCTIONS ---------
@@ -128,7 +128,7 @@
       probe    =val
     ; +retrieval>
     ;   isa      history
-    ;   feedback  "win"
+    ;   feedback  "Reward"
     =goal>
       state    evaluating-history
 )
@@ -183,7 +183,7 @@
       state    recalling-history
     =retrieval>
       isa       history
-      feedback  "win"
+      feedback  "Reward"
       guess     =g
     =imaginal>
       isa      history
@@ -212,7 +212,7 @@
       state    recalling-history
     =retrieval>
       isa       history
-      - feedback  "win"  ; include neutral memory
+      - feedback  "Reward"  ; include neutral memory
       guess     M
     =imaginal>
       isa      history
@@ -236,7 +236,7 @@
       state    recalling-history
     =retrieval>
       isa       history
-      - feedback  "win"
+      - feedback  "Reward"
       guess     L
     =imaginal>
       isa      history

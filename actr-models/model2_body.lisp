@@ -67,15 +67,14 @@
  (start isa chunk) (attending-feedback isa chunk)
  (attending-probe isa chunk) (pressing-key isa chunk) 
  (encoding-feedback isa chunk) (read-feedback isa chunk)
- (win isa chunk) (lose isa chunk) 
  (neutral isa chunk) (M isa chunk) (L isa chunk)
  (goal isa goal state start)
- (win-history-M isa history probe "?" guess M feedback "win")
- (win-history-L isa history probe "?" guess L feedback "win")
- (lose-history-M isa history probe "?" guess M feedback "lose")
- (lose-history-L isa history probe "?" guess L feedback "lose")
- (neutral-history-M isa history probe "?" guess M feedback "neutral")
- (neutral-history-L isa history probe "?" guess L feedback "neutral")
+ (win-history-M isa history probe "?" guess M feedback "Reward")
+ (win-history-L isa history probe "?" guess L feedback "Reward")
+ (lose-history-M isa history probe "?" guess M feedback "Punishment")
+ (lose-history-L isa history probe "?" guess L feedback "Punishment")
+ (neutral-history-M isa history probe "?" guess M feedback "Neutral")
+ (neutral-history-L isa history probe "?" guess L feedback "Neutral")
  )
 
 
@@ -113,7 +112,7 @@
     +retrieval>
       isa      history
       probe    =val
-      feedback  "win"
+      feedback  "Reward"
     =goal>
       state    pressing-key
 

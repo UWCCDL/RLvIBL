@@ -28,6 +28,15 @@ library(xtable)
 library(kableExtra)
 library(pracma)  # imports Mode function
 library(rstatix)
+library(tidyverse) # handy utility functions
+library(dplyr)
+library(ggpubr)
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(lme4)
+library(sjPlot)
+library(ggeffects)
 rm(list = ls())
 ```
 
@@ -37,34 +46,50 @@ Description of two models:
 
 Two simple models are implemented in ACT-R, performing the gambling task depending on two distinctive mechanisms.
 
-Model1: Declarative Model(SHOULD be instance leanring model, but now, it's just declrative based model). The model retrieves "WIN" memory about previous "GUESS" and "FEEDBACK". Depending on activtaions of memory, it decides whether to press "MORE" or "LESS" key. 
-TODO: figure out how to implement instance-based learning in Model1
+### Model1: Declarative Model (version 2.0)
+
+The model randomly evaluates an action GUESS-MORE or GUESS-LESS, then retrieving memories about prior feedback. If "WIN" memory is retrieved, the model chooses the evaluated action. If "LOSE"/"Neutral" memory is retrieved, the model chooses the alternative action. 
 
 
-Model2: RL Models. The model compeltely relies on procedural memory, pressing "MORE"/"LESS" key. Then a feedback is given, it delivers either +1/-1/0 reward to the production, and the utility of all previous productions will be affected
+### Model2: RL Models. 
+
+The model makes decision relying on procedural memory, pressing "MORE"/"LESS" key. GUESS-MORE and GUESS-LESS productions are competing. In the end, a feedback is given, the model receives either +1/-1/0 reward to all previous productions, and the utility of all previous fired productions will be affected. 
+
 ```{r}
-model1 <- read.csv("model1.csv")
-model2 <- read.csv("model2.csv")
+model1 <- read.csv("./no_seed/MODEL120210420.csv") %>% rename(Trial=X)
+model2 <- read.csv("./no_seed/MODEL220210420.csv") %>% rename(Trial=X)
 
-model1 <- model1 %>% rename (Trial = X, CurrentResponse=Response) %>%
-  mutate(CurrentResponse=ifelse(CurrentResponse=='l', 2, 3),
+#model1 <- read.csv("MODEL120210420.csv")
+#model2 <- read.csv("MODEL220210420.csv")
+
+model1 <- model1 %>% rename (CurrentResponse=Response) %>%
+  mutate(CurrentResponse=ifelse(CurrentResponse=='j', 3, 2),
          TrialType=case_when(TrialType == "win" ~ "Reward",
                              TrialType == "lose" ~ "Punishment",
                              TrialType == "neutral" ~ "Neutral",
                              TRUE ~ "NA"),
          BlockType=case_when(BlockType == "mostly_reward" ~ "Mostly Reward",
                              BlockType == "mostly_punish" ~ "Mostly Punishment",
-                             TRUE ~ "NA"))
+                             TRUE ~ "NA"),
+         RT = as.numeric(RT),
+         Epoch = as.numeric(Epoch)) 
 
-model2 <- model2 %>% rename (Trial = X, CurrentResponse=Response) %>%
-  mutate(CurrentResponse=ifelse(CurrentResponse=='l', 2, 3),
+model2 <- model2 %>% rename (CurrentResponse=Response) %>%
+  mutate(CurrentResponse=ifelse(CurrentResponse=='j', 3, 2),
          TrialType=case_when(TrialType == "win" ~ "Reward",
                              TrialType == "lose" ~ "Punishment",
                              TrialType == "neutral" ~ "Neutral",
                              TRUE ~ "NA"),
          BlockType=case_when(BlockType == "mostly_reward" ~ "Mostly Reward",
                              BlockType == "mostly_punish" ~ "Mostly Punishment",
-                             TRUE ~ "NA"))
+                             TRUE ~ "NA"),
+         RT = as.numeric(RT),
+         Epoch = as.numeric(Epoch)) 
+
+# only 
+model1 <- model1 %>% filter(ans==.2 & bll==.2 & lf==.2)
+model2 <- model2 %>% filter(alpha==.2 & egs==.2 & r==10)
+
 ```
 
 # Compute win-stay probabilities
@@ -77,68 +102,96 @@ past_moves <- function(responses) {
   c(NA, responses[1:length(responses)-1])
 }
 
-
-model1 <- model1 %>%
+count_responses <- function(model.dat) {
+  model.dat <- model.dat %>%
    mutate(FutureResponse = future_moves(CurrentResponse),
          PastResponse = past_moves(CurrentResponse),
          PreviousFeedback = past_moves(TrialType),
          ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1))
-
-
-model2 <- model2 %>%
-   mutate(FutureResponse = future_moves(CurrentResponse),
-         PastResponse = past_moves(CurrentResponse),
-         PreviousFeedback = past_moves(TrialType),
-         ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1))
-
+  return(model.dat)
+}
 ```
 
-Let's look at the PSwitch and RT as a function of Current TrialType
 
 ```{r}
-model1.aggregate <- model1 %>%
-  na.omit() %>%
-  group_by(BlockType, 
-           TrialType) %>%
+aggregate.CurrentTrial <- function(model.dat) {
+  model.aggregate <- model.dat %>%
+  filter(Trial!=0) %>% # exclude first trial
+  group_by(Epoch, BlockType, TrialType) %>%
   summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+  return (model.aggregate)
+}
 
-model2.aggregate <- model2 %>%
-  na.omit() %>%
-  group_by(BlockType, 
-           TrialType) %>%
+aggregate.PreviousTrial <- function(model.dat) {
+  model.aggregate <- model.dat %>%
+  filter(Trial!=0) %>% # exclude first trial
+  group_by(Epoch, BlockType, PreviousFeedback) %>%
   summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+  return (model.aggregate)
+}
 
 ```
-
 
 ```{r}
 PSwitch.aggplot <- function(aggregate.dat) {
-  res <- ggplot(aggregate.dat,
-       aes(x = TrialType, y = PSwitch, col = TrialType)) +
-  facet_grid( ~ BlockType, labeller = label_both) +
-  geom_point(position = position_jitter(width = 0.1, height = 0.05),
-             alpha = 0.9, size=3) +
-  scale_color_brewer(palette = "Set2") +
-  #stat_summary(fun.data = "mean_cl_boot", col="black") +
+  # res <- ggplot(aggregate.dat,
+  #      aes(x = TrialType, y = PSwitch, col = TrialType)) +
+  # facet_grid( ~ BlockType) +
+  # geom_point(alpha = 0.3, size=3) +
+  # scale_color_brewer(palette = "Set2") +
+  # stat_summary(fun.data = "mean_cl_boot", col="black") +
+  # ylim(0,1) +
+  # theme_pander()
+  
+  res <- ggplot(aggregate.dat, aes(x = TrialType, y = PSwitch, col = Epoch)) +
+  facet_grid( ~ BlockType) +
+  geom_line(aes(group = Epoch), alpha=.5) + 
+  geom_point(alpha=.5, size=3) +
+  ylim(0,1) +
+  guides(col=FALSE) +
+  stat_summary(fun.data = "mean_cl_boot", col="black") +
   theme_pander()
+  
   return(res)
 }
 
 RT.aggplot <- function(aggregate.dat) {
-  res <- ggplot(aggregate.dat,
-       aes(x = TrialType, y = RT, col = TrialType)) +
-  facet_grid( ~ BlockType, labeller = label_both) +
-  geom_point(position = position_jitter(width = 0.1, height = 0.05),
-             alpha = 0.9, size=3) +
-  scale_color_brewer(palette = "Set2") +
-  #stat_summary(fun.data = "mean_cl_boot", col="black") +
+  # res <- ggplot(aggregate.dat,
+  #      aes(x = TrialType, y = RT, col = TrialType)) +
+  # facet_grid( ~ BlockType) +
+  # geom_point(position = position_jitter(width = 0.1, height = 0.05),
+  #            alpha = 0.3, size=3) +
+  # scale_color_brewer(palette = "Set2") +
+  # stat_summary(fun.data = "mean_cl_boot", col="black") +
+  # ylim(0,2) +
+  # theme_pander()
+  
+  res <- ggplot(aggregate.dat, aes(x = TrialType, y = RT, col = Epoch)) +
+  facet_grid( ~ BlockType) +
+  geom_line(aes(group = Epoch), alpha=.5) + 
+  geom_point(alpha=.5, size=3) +
+  ylim(0,1) +
+  guides(col=FALSE) +
+  stat_summary(fun.data = "mean_cl_boot", col="black") +
   theme_pander()
   return(res)
 }
 
 ```
 
-Let's visualize it 
+
+Let's look at the PSwitch and RT as a function of Current TrialType
+
+```{r}
+model1 <- count_responses(model1)
+model2 <- count_responses(model2)
+
+model1.aggregate <- aggregate.CurrentTrial(model1)
+model2.aggregate <- aggregate.CurrentTrial(model2)
+
+```
+
+
 ```{r}
 PSwitch.aggplot(model1.aggregate) + ggtitle("MODEL1")
 PSwitch.aggplot(model2.aggregate) + ggtitle("MODEL2")
@@ -152,106 +205,261 @@ RT.aggplot(model2.aggregate) + ggtitle("MODEL2")
 
 Model1:
 
-- In Mostly Punishment Block, PSwitch(Reward) is not much different from PSwitch(Punishment), indicating like humans, the model has  no idea whether CurrentTrial is rewarding/punishing. 
-
-- In Mostly Rewarding Block, PSwitch(Punishment) is much lower than PSwitch(Reward), indicating the model overall tends to stay when get punished. 
-
 Model2:
-
-- In Mostly Punishment Block, PSwitch(Reward) is lower than PSwitch(Punishment), indicating that the model tends to stay on reward trials, while switch on punishment trials.   
-
-- In Mostly Rewarding Block, similar pattern is observed, PSwitch(Reward) is lower than PSwitch(Punishment), indicating the model overall tends to switching.
 
 
 ### Summary of RT vs. CurrentTrial
 
 Model1:
 
-- Longer RT for reward trials in Mostly Punishment Blocks, indicating that rare instances of trials require more time to retrieve from memory.
-
 Model2:
 
-- In both Mostly Punishment Block and Mostly Rewarding Block, RT(Reward) is longer than RT(Punishment), indicating ?
 
-
-
-Next, let's look at the PSwitch and RT as a function of Previous Feedback
 ```{r}
-model1.pf_aggregate <- model1 %>%
-  na.omit() %>%
-  group_by(BlockType, 
-           PreviousFeedback) %>%
-  summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+model1.pf_aggregate <- aggregate.PreviousTrial(model1)
+model2.pf_aggregate <- aggregate.PreviousTrial(model2)
 
-model2.pf_aggregate <- model2 %>%
-  na.omit() %>%
-  group_by(BlockType, 
-           PreviousFeedback) %>%
-  summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
 ```
 
 ```{r}
 PSwitch.pfaggplot <- function(aggregate.dat) {
-  res <- ggplot(aggregate.dat,
-       aes(x = PreviousFeedback, y = PSwitch, col = PreviousFeedback)) +
+  # res <- ggplot(aggregate.dat,
+  #      aes(x = PreviousFeedback, y = PSwitch, col = PreviousFeedback, 
+  #          group = PreviousFeedback)) +
+  # facet_grid( ~ BlockType, labeller = label_both) +
+  # geom_point(alpha = 0.3, size=3) +
+  # scale_color_brewer(palette = "Set2") +
+  # stat_summary(fun.data = "mean_cl_boot", col="black") +
+  # ylim(0,1) +
+  # theme_pander()
+  
+  res <- aggregate.dat %>% 
+  ggplot(aes(x = PreviousFeedback, y = PSwitch, col  = Epoch)) +
   facet_grid( ~ BlockType, labeller = label_both) +
-  geom_point(position = position_jitter(width = 0.1, height = 0.05),
-             alpha = 0.9, size=3) +
-  scale_color_brewer(palette = "Set2") +
-  #stat_summary(fun.data = "mean_cl_boot", col="black") +
+  geom_line(aes(group = Epoch), alpha=.5) + 
+  geom_point(alpha=.5, size=3) +
+  ylim(0,1) +
+  guides(col=FALSE) +
+  stat_summary(fun.data = "mean_cl_boot", col="black") +
   theme_pander()
+  
   return(res)
 }
 
 RT.pfaggplot <- function(aggregate.dat) {
-  res <- ggplot(aggregate.dat,
-       aes(x = PreviousFeedback, y = RT, col = PreviousFeedback)) +
+  # res <- ggplot(aggregate.dat,
+  #      aes(x = PreviousFeedback, y = RT, col = PreviousFeedback)) +
+  # facet_grid( ~ BlockType, labeller = label_both) +
+  # geom_point(alpha = 0.3, size=3) +
+  # scale_color_brewer(palette = "Set2") +
+  # ylim(0,1) +
+  # stat_summary(fun.data = "mean_cl_boot", col="black") +
+  # theme_pander()
+  
+  res <- aggregate.dat %>% 
+  ggplot(aes(x = PreviousFeedback, y = PSwitch, col  = Epoch)) +
   facet_grid( ~ BlockType, labeller = label_both) +
-  geom_point(position = position_jitter(width = 0.1, height = 0.05),
-             alpha = 0.9, size=3) +
-  scale_color_brewer(palette = "Set2") +
-  #stat_summary(fun.data = "mean_cl_boot", col="black") +
+  geom_line(aes(group = Epoch), alpha=.5) + 
+  geom_point(alpha=.5, size=3) +
+  ylim(0,1) +
+  guides(col=FALSE) +
+  stat_summary(fun.data = "mean_cl_boot", col="black") +
   theme_pander()
   return(res)
 }
 ```
+
+
 Let's visualize it 
 ```{r}
 PSwitch.pfaggplot(model1.pf_aggregate) + ggtitle("MODEL1")
 PSwitch.pfaggplot(model2.pf_aggregate) + ggtitle("MODEL2")
 
-
-RT.pfaggplot(model1.pf_aggregate) + ggtitle("MODEL1")
-RT.pfaggplot(model2.pf_aggregate)+ ggtitle("MODEL2")
 ```
 
+```{r eval=F}
+aov(PSwitch ~ BlockType * PreviousFeedback, model2.pf_aggregate  %>% filter(PreviousFeedback!="Neutral"))  %>%
+  anova_summary() %>%
+  xtable() %>%
+  kable(digits=4) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+aov(RT ~ BlockType * PreviousFeedback, model2.pf_aggregate  %>% filter(PreviousFeedback!="Neutral"))  %>%
+  anova_summary() %>%
+  xtable() %>%
+  kable(digits=4) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+```
 
 ### Summary of Pswicth vs. PreviousTrial
 
 Model1:
 
-- In Mostly Punishment Block, PSwitch(Reward) > PSwitch(Punishment), indicating the model tend to switch. 
-
-- In Mostly Rewarding Block, PSwitch(Reward) < PSwitch(Punishment), indicating the model tend to stay. 
 
 Model2:
 
-- In Mostly Punishment Block, PSwitch(Reward) < PSwitch(Punishment) indicating that Model 2 is actively switching to avoid punishment. When seeing a reward trial, it tends to stay.
-
-- In Mostly Rewarding Block, PSwitch(Reward) > PSwitch(Punishment), indicating ?.
 
 
 ### Summary of RT vs. PreviousTrial
 
 Model1:
 
-- In Mostly Punishment Block, RT(Reward) > RT(Punishment), indicating the model needs more time to retrieve rare instances. 
-
-- In Mostly Rewarding Block, RT(Reward) < RT(Punishment)
-
 Model2:
 
-- In Mostly Punishment Block, RT(Reward) < RT(Punishment) indicating model always respond faster on rewarding trials
 
-- In Mostly Rewarding Block, RT(Reward) < RT(Punishment), indicating ?.
 
+
+
+
+
+```{r eval=F}
+blockId <- sort(rep(1:4, 8))
+
+gambling <- gambling %>% 
+  group_by(HCPID, RunNumber) %>%
+  mutate(BlockId = blockId, 
+         Response = if_else(is.na(QuestionMark.RESP), 0, QuestionMark.RESP))
+
+bg <- gambling %>%
+  group_by(BlockId, HCPID, RunNumber) %>%
+  summarise(BlockType = paste("Mostly", Mode(TrialType)))
+
+gambling <- inner_join(gambling, bg)
+
+past_moves <- function(responses) {
+  c(NA, responses[1:length(responses)-1])
+}
+
+gambling <- gambling %>%
+  group_by(RunNumber, BlockId) %>%
+  mutate(CurrentResponse = Response,
+         FutureResponse = future_moves(Response),
+         PastResponse = past_moves(Response),
+         PreviousFeedback = past_moves(TrialType),
+         RT = QuestionMark.RT/1200) %>%
+  filter(FutureResponse != 0) %>%
+  #filter(CurrentResponse != 0) %>%
+  mutate(ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1))   %>%
+  select(HCPID, RunNumber, BlockId, RT, Response, PastResponse,
+         CurrentResponse, FutureResponse, ResponseSwitch, BlockType, TrialType,
+         PreviousFeedback, FeedbackImage)
+
+gambling$PreviousFeedback <- as_factor(gambling$PreviousFeedback)
+gambling$PreviousFeedback <- revalue(gambling$PreviousFeedback,
+                                         c("1"="Reward", 
+                                           "2"="Punishment", 
+                                           "3"="Neutral"))
+```
+
+```{r eval=F}
+subj1.aggregate <- aggregate.CurrentTrial(gambling)
+subj1.pf_aggregate <- aggregate.PreviousTrial(gambling)
+
+PSwitch.aggplot(subj1.aggregate) + ggtitle("SUBJ - 100307")
+RT.aggplot(subj1.aggregate) + ggtitle("SUBJ - 100307")
+
+PSwitch.pfaggplot(subj1.pf_aggregate) + ggtitle("SUBJ - 100307")
+RT.pfaggplot(subj1.pf_aggregate) + ggtitle("SUBJ - 100307")
+
+
+```
+
+```{r eval=F}
+gambling <- read_tsv("../../gambling_data.txt")
+gambling.trials <- gambling %>% 
+  #filter(RunNumber==1) %>%
+  select(HCPID, Trial, RunNumber, TrialType, RunTrialNumber, Block, 
+         QuestionMark.RESP, QuestionMark.ACC, QuestionMark.RT,
+         R1MostlyReward1, R1MostlyReward2, R1MostlyPunishment1, R1MostlyPunishment3, QuestionMark.OnsetDelay, 
+         ConsecSameResp, ConsecLargerGuesses, ConsecSmallerGuesses, ConsecRTLess200) %>% 
+  rename(CurrentResponse=QuestionMark.RESP, RT=QuestionMark.RT)  %>%
+  mutate(FutureResponse = future_moves(CurrentResponse),
+         PastResponse = past_moves(CurrentResponse), 
+         ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1),
+         PreviousFeedback = past_moves(as.character(TrialType)),
+         BlockType = case_when(
+           !is.na(R1MostlyReward1) ~ "MostlyReward", 
+           !is.na(R1MostlyReward2) ~ "MostlyReward", 
+           !is.na(R1MostlyPunishment1) ~ "MostlyPunishment", 
+           !is.na(R1MostlyPunishment3) ~ "MostlyPunishment"
+         )) %>%
+  select(-R1MostlyReward1, -R1MostlyReward2, -R1MostlyPunishment1, -R1MostlyPunishment3) %>%
+  filter(!is.na(TrialType))
+
+#write.csv(gambling.trials, "../../gambling_clean_data.csv")
+```
+
+```{r eval=F}
+gambling.aggregate <- gambling.trials.session1 %>% 
+  filter(!is.na(ResponseSwitch) & !is.na(RT)) %>%
+  group_by(HCPID, TrialType, BlockType, PreviousFeedback) %>%
+  summarise(PSwitch = mean(ResponseSwitch),RT = mean(RT))
+
+ggplot(gambling.aggregate,
+       aes(x = TrialType, y = PSwitch, col = TrialType)) +
+  facet_grid( ~ BlockType, labeller = label_both) +
+  geom_point(position = position_jitter(width = 0.1, height = 0.05),
+             alpha = 0.1) +
+  scale_color_brewer(palette = "Set2") +
+  stat_summary(fun.data = "mean_cl_boot", col="black") +
+  theme_pander()
+
+gambling.trials <- gambling.trials.session1 %>% select(HCPID, Trial, RunTrialNumber, TrialType, BlockType)
+
+gambling.trials.session1 %>%
+  gghistogram("RT", add = "median")
+  
+```
+
+
+# Load Subject Data
+
+data cleaning
+
+```{r eval=FALSE}
+gambling.clean <- read_csv("../../bin/gambling_clean_data.csv") %>% 
+  select(-BlockType) %>% rename(BlockType=BlockTypeCoded)
+
+
+gambling.cfagg <- gambling.clean %>%
+  na.omit() %>%
+  group_by(HCPID, BlockType, TrialType) %>%
+  summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+
+gambling.pfagg <- gambling.clean %>%
+  na.omit() %>%
+  group_by(HCPID, BlockType, PreviousFeedback) %>%
+  summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+
+# long format
+gambling.cfagg <- left_join(gambling.cfagg %>% select(-RT) %>%
+  spread(key = TrialType, value = PSwitch, sep = "."),
+  gambling.cfagg %>% select(-PSwitch) %>%
+  spread(key = TrialType, value = RT, sep = "."),
+  by = c("HCPID", "BlockType"), suffix=c(".PSwitch",".RT"))
+
+gambling.pfagg <- left_join(gambling.pfagg %>% select(-RT) %>%
+  spread(key = PreviousFeedback, value = PSwitch, sep = "."),
+  gambling.pfagg %>% select(-PSwitch) %>%
+  spread(key = PreviousFeedback, value = RT, sep = "."),
+  by = c("HCPID", "BlockType"), suffix=c(".PSwitch",".RT"))
+
+#write_csv(gambling.cfagg, "../../bin/gambling_cfagg.csv")
+#write_csv(gambling.pfagg, "../../bin/gambling_pfagg.csv")
+```
+
+```{r}
+gambling.cfagg <- read_csv("../../bin/gambling_cfagg.csv")
+gambling.pfagg <- read_csv("../../bin/gambling_pfagg.csv")
+
+gambling.pfagg %>% filter(HCPID=="100307_fnca") %>%
+  ggplot(aes(x = PreviousFeedback, y = PSwitch, , group = BlockType)) +
+  facet_grid( ~ BlockType, labeller = label_both) +
+  geom_line(alpha=.5) + 
+  geom_point(alpha=.5, size=3, aes(col=PreviousFeedback)) +
+  ylim(0,1) +
+  theme_pander() +
+  ggtitle("SUB-100307")
+
+```

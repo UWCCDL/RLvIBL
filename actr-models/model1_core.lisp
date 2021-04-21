@@ -28,11 +28,11 @@
      :act t                     ; Activation trace
      ;---------- activation parameters (3) ----------
      :rt -10                     ; Retrieval Threshold
-     :lf .7                   ; Decay Rate
-     :bll .7                  ; Base-Level-Learning
+     :lf .1                   ; Decay Rate
+     :bll .3                  ; Base-Level-Learning
      ;:blc 1                    ; Base-Level-Constant
      ;:ol nil                   ; Optimal Learning
-     :ans .7                  ; Noise
+     :ans .2                  ; Noise
      :act t
      :ncnar nil
      ;---------- production parameters ----------

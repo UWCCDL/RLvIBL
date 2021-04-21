@@ -37,8 +37,8 @@
      :ncnar nil
      ;---------- production parameters ----------
      :ul t                      ; Utility learning
-     ;:ult t                     ; Utility learning trace
-     ;:cst t                     ; Conflict set trace
+     :ult nil                     ; Utility learning trace
+     :cst nil                     ; Conflict set trace
      ;:ppm nil                   ; Partial matching
      :alpha 0.2                 ; Learning rate
      :egs 0.1                   ; Utility noises
