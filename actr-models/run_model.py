@@ -36,6 +36,7 @@ def load_model(model="model1", param_set=None):
     reward = 0 # init value
     actr.load_act_r_model(os.path.abspath(model+"_body.lisp"))
     print("######### LOADED MODEL " +model+ " #########")
+    print(">>", get_parameters(*get_parameters_name()), "<<")
 
 def check_load(model="model1"):
     has_model = actr.current_model().lower() == model
@@ -375,10 +376,11 @@ def test_unit7():
 
 def test_unit8():
     """This test is to see if load stimuli func works"""
-    simulate(epoch=2, model="model1", param_set=None, export=True, verbose=True, file_suffix="test1", HCPID="100307_fnca")
+    simulate(epoch=2, model="model1", param_set=None, export=False, verbose=True, file_suffix="test1", HCPID="100307_fnca")
 
-
-
-
+def test_unit9():
+    HCPID = "102311_fnca"
+    stimuli = load_stimuli(HCPID)
+    p.pprint(task(stimuli[0:10]))
 
 
