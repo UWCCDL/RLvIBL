@@ -126,12 +126,17 @@
     +imaginal>
       isa      history
       probe    =val
-    ; +retrieval>
-    ;   isa      history
-    ;   feedback  "Reward"
+    +retrieval>
+      isa      history
+      probe    =val
+      feedback  "Reward"
     =goal>
       state    evaluating-history
+
 )
+
+
+;;; Eval history
 
 (p evaluate-more
   =goal>
@@ -147,8 +152,6 @@
 ==>
   =goal>
       state    recalling-history
-  +visual>
-      cmd      clear
   +retrieval>
       isa      history
       guess    M
@@ -161,16 +164,12 @@
       state    evaluating-history
   ?imaginal>
       state    free
-  ?visual>
-      state    free
   =imaginal>
       isa     history
       - probe   nil
 ==>
   =goal>
       state    recalling-history
-  +visual>
-      cmd      clear
   +retrieval>
       isa      history
       guess    L
@@ -190,18 +189,12 @@
       - probe  nil
     ?imaginal>
       state    free
-    ; ?manual>
-    ;   state    free
-    ?visual>
-      state    free
    ==>
     ; +manual>
     ;   cmd      press-key
     ;   key      =g
     =goal>
       state    pressing-key
-    +visual>
-      cmd      clear
     *imaginal>
       guess    =g
 )
@@ -219,13 +212,9 @@
       - probe  nil
     ?imaginal>
       state    free
-    ?visual>
-      state    free
    ==>
     =goal>
       state    pressing-key
-    +visual>
-      cmd      clear
     *imaginal>
       guess    L ; reverse
 )
@@ -243,13 +232,9 @@
       - probe  nil
     ?imaginal>
       state    free
-    ?visual>
-      state    free
    ==>
     =goal>
       state    pressing-key
-    +visual>
-      cmd      clear
     *imaginal>
       guess    M ; reverse
 )
@@ -262,13 +247,9 @@
       state    free
     ?retrieval>
       buffer   failure
-    ?visual>
-      state    free
    ==>
     =goal>
       state    pressing-key
-    +visual>
-     cmd      clear
     ; *imaginal>
     ;   guess    nil 
 )
@@ -329,7 +310,8 @@
     =imaginal>
   )
 
-;;; detect feedback. wait for rge screen to change before doing anything
+;;; detect feedback. wait for screen to change before doing anything
+
 (p detect-feedback
     =goal>
       isa      goal
@@ -337,7 +319,11 @@
     =visual-location>
     ?visual>
       state    free
+    ?manual>
+      state free
    ==>
+    +manual>
+      cmd clear
     +visual>
       cmd      move-attention
       screen-pos =visual-location
@@ -347,10 +333,10 @@
 
 (p encode-feedback
     =goal>
-      isa      goal
-      state    attending-feedback
+      state  attending-feedback
     =visual>
       isa      visual-object
+    - value "?" 
       value    =val
     =imaginal>
       isa      history
@@ -361,14 +347,16 @@
       state    free
     ?imaginal>
       state    free
+    ?manual>
+      state free
+    
   ==>
    *imaginal>
       feedback   =val
+   =visual>
    =goal>
       state    encoding-feedback
-   +visual>
-      cmd      clear
-)
+ )
 
 (p end-task
     =goal>
@@ -376,6 +364,7 @@
         state    encoding-feedback
     ?imaginal>
         state    free
+        buffer full
   ==>
     -imaginal>
     =goal>
