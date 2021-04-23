@@ -381,6 +381,15 @@ def test_unit8():
 def test_unit9():
     HCPID = "102311_fnca"
     stimuli = load_stimuli(HCPID)
-    p.pprint(task(stimuli[0:10]))
+    p.pprint(task(stimuli))
+
+def test_unit10():
+    "This is testing parameter"
+    HCPID = "102311_fnca"
+    stimuli = load_stimuli(HCPID)
+    load_model("model1", param_set={"ans":1.1831138, "bll":.2, "lf":1.5})
+    m1 = pd.DataFrame(task(stimuli))
+    m1[[2]]
+
 
 

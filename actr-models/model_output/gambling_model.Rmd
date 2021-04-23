@@ -18,7 +18,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, error = FALSE, message = FALSE)
 library(plyr)
 library(ggthemes)
 library(ggplot2)
@@ -37,6 +37,7 @@ library(rstatix)
 library(lme4)
 library(sjPlot)
 library(ggeffects)
+library(Metrics)
 rm(list = ls())
 ```
 
@@ -56,40 +57,27 @@ The model randomly evaluates an action GUESS-MORE or GUESS-LESS, then retrieving
 The model makes decision relying on procedural memory, pressing "MORE"/"LESS" key. GUESS-MORE and GUESS-LESS productions are competing. In the end, a feedback is given, the model receives either +1/-1/0 reward to all previous productions, and the utility of all previous fired productions will be affected. 
 
 ```{r}
-model1 <- read.csv("./no_seed/MODEL120210420.csv") %>% rename(Trial=X)
-model2 <- read.csv("./no_seed/MODEL220210420.csv") %>% rename(Trial=X)
+model1.raw <- read.csv("./MODEL120210423_102311_fnca_log.csv") #%>% rename(Trial=X)
+model2.raw <- read.csv("./MODEL220210423_102311_fnca_log.csv") #%>% rename(Trial=X)
 
 #model1 <- read.csv("MODEL120210420.csv")
 #model2 <- read.csv("MODEL220210420.csv")
 
-model1 <- model1 %>% rename (CurrentResponse=Response) %>%
-  mutate(CurrentResponse=ifelse(CurrentResponse=='j', 3, 2),
-         TrialType=case_when(TrialType == "win" ~ "Reward",
-                             TrialType == "lose" ~ "Punishment",
-                             TrialType == "neutral" ~ "Neutral",
-                             TRUE ~ "NA"),
-         BlockType=case_when(BlockType == "mostly_reward" ~ "Mostly Reward",
-                             BlockType == "mostly_punish" ~ "Mostly Punishment",
-                             TRUE ~ "NA"),
+model1.raw <- model1.raw %>% 
+  mutate(CurrentResponse = case_when(Response=="j" ~ 3,
+                                     Response=="f" ~ 2),
          RT = as.numeric(RT),
          Epoch = as.numeric(Epoch)) 
 
-model2 <- model2 %>% rename (CurrentResponse=Response) %>%
-  mutate(CurrentResponse=ifelse(CurrentResponse=='j', 3, 2),
-         TrialType=case_when(TrialType == "win" ~ "Reward",
-                             TrialType == "lose" ~ "Punishment",
-                             TrialType == "neutral" ~ "Neutral",
-                             TRUE ~ "NA"),
-         BlockType=case_when(BlockType == "mostly_reward" ~ "Mostly Reward",
-                             BlockType == "mostly_punish" ~ "Mostly Punishment",
-                             TRUE ~ "NA"),
+model2.raw <- model2.raw %>%
+  mutate(CurrentResponse = case_when(Response=="j" ~ 3,
+                                     Response=="f" ~ 2),
          RT = as.numeric(RT),
          Epoch = as.numeric(Epoch)) 
 
 # only 
-model1 <- model1 %>% filter(ans==.2 & bll==.2 & lf==.2)
-model2 <- model2 %>% filter(alpha==.2 & egs==.2 & r==10)
-
+model1 <- model1.raw %>% filter(ans==.1 & bll==.1 & lf==.1)
+model2 <- model2.raw %>% filter(alpha==.1 & egs==.1 & r==.1)
 ```
 
 # Compute win-stay probabilities
@@ -110,30 +98,45 @@ count_responses <- function(model.dat) {
          ResponseSwitch = if_else(CurrentResponse == FutureResponse, 0, 1))
   return(model.dat)
 }
+
+# NA for all first trial in each block
+clean_previous_future <- function(model.dat) {
+  model.dat <- model.dat %>%
+    mutate(PastResponse=ifelse(BlockTrial==0, NA, PastResponse),
+           PreviousFeedback=ifelse(BlockTrial==0, NA, PreviousFeedback),
+           FutureResponse=ifelse(BlockTrial==7, NA, FutureResponse),
+           ResponseSwitch=ifelse(BlockTrial==7, NA, ResponseSwitch),
+           )
+  return(model.dat)
+}
+
+#model1.count <- clean_previous_future(count_responses(model1))
 ```
 
 
 ```{r}
 aggregate.CurrentTrial <- function(model.dat) {
   model.aggregate <- model.dat %>%
-  filter(Trial!=0) %>% # exclude first trial
+  filter(!is.na(ResponseSwitch) & !is.na(CurrentResponse)) %>%
   group_by(Epoch, BlockType, TrialType) %>%
-  summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+  dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
   return (model.aggregate)
 }
 
 aggregate.PreviousTrial <- function(model.dat) {
   model.aggregate <- model.dat %>%
-  filter(Trial!=0) %>% # exclude first trial
+  filter(!is.na(ResponseSwitch) & !is.na(PreviousFeedback) & !is.na(CurrentResponse)) %>%
   group_by(Epoch, BlockType, PreviousFeedback) %>%
-  summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+  dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
   return (model.aggregate)
 }
 
+#model1.aggregate <- aggregate.CurrentTrial(model1.count)
+#model1.aggregate
 ```
 
 ```{r}
-PSwitch.aggplot <- function(aggregate.dat) {
+PSwitch.aggplot <- function(aggregate.dat, subjID) {
   # res <- ggplot(aggregate.dat,
   #      aes(x = TrialType, y = PSwitch, col = TrialType)) +
   # facet_grid( ~ BlockType) +
@@ -143,19 +146,29 @@ PSwitch.aggplot <- function(aggregate.dat) {
   # ylim(0,1) +
   # theme_pander()
   
-  res <- ggplot(aggregate.dat, aes(x = TrialType, y = PSwitch, col = Epoch)) +
-  facet_grid( ~ BlockType) +
-  geom_line(aes(group = Epoch), alpha=.5) + 
-  geom_point(alpha=.5, size=3) +
-  ylim(0,1) +
-  guides(col=FALSE) +
-  stat_summary(fun.data = "mean_cl_boot", col="black") +
-  theme_pander()
+  if(!is.na(subjID)) {
+    res <- ggplot(aggregate.dat %>% filter(HCPID==subjID), 
+                  aes(x = TrialType, y = PSwitch)) +
+    facet_grid( ~ BlockType) +
+    geom_line(aes(group = BlockType), alpha=.5) + 
+    geom_point(alpha=.5, size=3, aes(col=TrialType)) +
+    ylim(0,1) +
+    theme_pander()
+   
+  } else {
+    res <- ggplot(aggregate.dat, aes(x = TrialType, y = PSwitch, col = Epoch)) +
+    facet_grid( ~ BlockType) +
+    geom_line(aes(group = Epoch), alpha=.5) + 
+    geom_point(alpha=.5, size=3) +
+    ylim(0,1) +
+    guides(col=FALSE) +
+    stat_summary(fun.data = "mean_cl_boot", col="black") +
+    theme_pander()
+  }
   
   return(res)
 }
-
-RT.aggplot <- function(aggregate.dat) {
+RT.aggplot <- function(aggregate.dat, subjID) {
   # res <- ggplot(aggregate.dat,
   #      aes(x = TrialType, y = RT, col = TrialType)) +
   # facet_grid( ~ BlockType) +
@@ -165,15 +178,28 @@ RT.aggplot <- function(aggregate.dat) {
   # stat_summary(fun.data = "mean_cl_boot", col="black") +
   # ylim(0,2) +
   # theme_pander()
+  if(!is.na(subjID)) {
+    
+    # plot  human data
+    res <- ggplot(aggregate.dat %>% filter(HCPID==subjID), 
+                  aes(x = TrialType, y = RT)) +
+    facet_grid( ~ BlockType) +
+    geom_line(aes(group = BlockType), alpha=.5) + 
+    geom_point(alpha=.5, size=3, aes(col=TrialType)) +
+    ylim(0,1) +
+    theme_pander()
   
-  res <- ggplot(aggregate.dat, aes(x = TrialType, y = RT, col = Epoch)) +
-  facet_grid( ~ BlockType) +
-  geom_line(aes(group = Epoch), alpha=.5) + 
-  geom_point(alpha=.5, size=3) +
-  ylim(0,1) +
-  guides(col=FALSE) +
-  stat_summary(fun.data = "mean_cl_boot", col="black") +
-  theme_pander()
+    # plot model data
+  } else {
+    res <- ggplot(aggregate.dat, aes(x = TrialType, y = RT, col = Epoch)) +
+    facet_grid( ~ BlockType) +
+    geom_line(aes(group = Epoch), alpha=.5) + 
+    geom_point(alpha=.5, size=3) +
+    ylim(0,1500) +
+    guides(col=FALSE) +
+    stat_summary(fun.data = "mean_cl_boot", col="black") +
+    theme_pander()
+  }
   return(res)
 }
 
@@ -183,22 +209,23 @@ RT.aggplot <- function(aggregate.dat) {
 Let's look at the PSwitch and RT as a function of Current TrialType
 
 ```{r}
-model1 <- count_responses(model1)
-model2 <- count_responses(model2)
+model1.count <- clean_previous_future(count_responses(model1))
+model2.count <- clean_previous_future(count_responses(model2))
 
-model1.aggregate <- aggregate.CurrentTrial(model1)
-model2.aggregate <- aggregate.CurrentTrial(model2)
+
+model1.aggregate <- aggregate.CurrentTrial(model1.count)
+model2.aggregate <- aggregate.CurrentTrial(model2.count)
 
 ```
 
 
 ```{r}
-PSwitch.aggplot(model1.aggregate) + ggtitle("MODEL1")
-PSwitch.aggplot(model2.aggregate) + ggtitle("MODEL2")
+PSwitch.aggplot(model1.aggregate, NA) + ggtitle("MODEL1")
+PSwitch.aggplot(model2.aggregate, NA) + ggtitle("MODEL2")
 
 
-RT.aggplot(model1.aggregate) + ggtitle("MODEL1")
-RT.aggplot(model2.aggregate) + ggtitle("MODEL2")
+RT.aggplot(model1.aggregate, NA) + ggtitle("MODEL1")
+RT.aggplot(model2.aggregate, NA) + ggtitle("MODEL1")
 ```
 
 ### Summary of Pswitch vs. CurrentTrial
@@ -216,13 +243,13 @@ Model2:
 
 
 ```{r}
-model1.pf_aggregate <- aggregate.PreviousTrial(model1)
-model2.pf_aggregate <- aggregate.PreviousTrial(model2)
+model1.pf_aggregate <- aggregate.PreviousTrial(model1.count)
+model2.pf_aggregate <- aggregate.PreviousTrial(model2.count)
 
 ```
 
 ```{r}
-PSwitch.pfaggplot <- function(aggregate.dat) {
+PSwitch.pfaggplot <- function(aggregate.dat, subjID) {
   # res <- ggplot(aggregate.dat,
   #      aes(x = PreviousFeedback, y = PSwitch, col = PreviousFeedback, 
   #          group = PreviousFeedback)) +
@@ -233,20 +260,33 @@ PSwitch.pfaggplot <- function(aggregate.dat) {
   # ylim(0,1) +
   # theme_pander()
   
-  res <- aggregate.dat %>% 
-  ggplot(aes(x = PreviousFeedback, y = PSwitch, col  = Epoch)) +
-  facet_grid( ~ BlockType, labeller = label_both) +
-  geom_line(aes(group = Epoch), alpha=.5) + 
-  geom_point(alpha=.5, size=3) +
-  ylim(0,1) +
-  guides(col=FALSE) +
-  stat_summary(fun.data = "mean_cl_boot", col="black") +
-  theme_pander()
+  # plot subject
+  if(!is.na(subjID)) {
+    res <- ggplot(aggregate.dat %>% filter(HCPID==subjID), 
+                  aes(x = PreviousFeedback, y = PSwitch)) +
+    facet_grid( ~ BlockType) +
+    geom_line(aes(group = BlockType), alpha=.5) + 
+    geom_point(alpha=.5, size=3, aes(col=PreviousFeedback)) +
+    ylim(0,1) +
+    theme_pander()
+   
+    # plot model
+  } else {
+    res <- aggregate.dat %>% 
+    ggplot(aes(x = PreviousFeedback, y = PSwitch, col  = Epoch)) +
+    facet_grid( ~ BlockType, labeller = label_both) +
+    geom_line(aes(group = Epoch), alpha=.5) + 
+    geom_point(alpha=.5, size=3) +
+    ylim(0,1) +
+    guides(col=FALSE) +
+    stat_summary(fun.data = "mean_cl_boot", col="black") +
+    theme_pander()
+  }
   
   return(res)
 }
 
-RT.pfaggplot <- function(aggregate.dat) {
+RT.pfaggplot <- function(aggregate.dat, subjID) {
   # res <- ggplot(aggregate.dat,
   #      aes(x = PreviousFeedback, y = RT, col = PreviousFeedback)) +
   # facet_grid( ~ BlockType, labeller = label_both) +
@@ -256,15 +296,28 @@ RT.pfaggplot <- function(aggregate.dat) {
   # stat_summary(fun.data = "mean_cl_boot", col="black") +
   # theme_pander()
   
-  res <- aggregate.dat %>% 
-  ggplot(aes(x = PreviousFeedback, y = PSwitch, col  = Epoch)) +
-  facet_grid( ~ BlockType, labeller = label_both) +
-  geom_line(aes(group = Epoch), alpha=.5) + 
-  geom_point(alpha=.5, size=3) +
-  ylim(0,1) +
-  guides(col=FALSE) +
-  stat_summary(fun.data = "mean_cl_boot", col="black") +
-  theme_pander()
+  # plot subject
+  if(!is.na(subjID)) {
+    res <- ggplot(aggregate.dat %>% filter(HCPID==subjID), 
+                  aes(x = PreviousFeedback, y = RT)) +
+    facet_grid( ~ BlockType) +
+    geom_line(aes(group = BlockType), alpha=.5) + 
+    geom_point(alpha=.5, size=3, aes(col=PreviousFeedback)) +
+    ylim(0,1) +
+    theme_pander()
+   
+    # plot model
+  } else {
+    res <- aggregate.dat %>% 
+    ggplot(aes(x = PreviousFeedback, y = RT, col  = Epoch)) +
+    facet_grid( ~ BlockType, labeller = label_both) +
+    geom_line(aes(group = Epoch), alpha=.5) + 
+    geom_point(alpha=.5, size=3) +
+    ylim(0,1500) +
+    guides(col=FALSE) +
+    stat_summary(fun.data = "mean_cl_boot", col="black") +
+    theme_pander()
+  }
   return(res)
 }
 ```
@@ -272,9 +325,8 @@ RT.pfaggplot <- function(aggregate.dat) {
 
 Let's visualize it 
 ```{r}
-PSwitch.pfaggplot(model1.pf_aggregate) + ggtitle("MODEL1")
-PSwitch.pfaggplot(model2.pf_aggregate) + ggtitle("MODEL2")
-
+PSwitch.pfaggplot(model1.pf_aggregate, NA) + ggtitle("MODEL1")
+PSwitch.pfaggplot(model2.pf_aggregate, NA) + ggtitle("MODEL2")
 ```
 
 ```{r eval=F}
@@ -296,9 +348,7 @@ aov(RT ~ BlockType * PreviousFeedback, model2.pf_aggregate  %>% filter(PreviousF
 
 Model1:
 
-
 Model2:
-
 
 
 ### Summary of RT vs. PreviousTrial
@@ -415,8 +465,6 @@ gambling.trials.session1 %>%
 
 # Load Subject Data
 
-data cleaning
-
 ```{r eval=FALSE}
 gambling.clean <- read_csv("../../bin/gambling_clean_data.csv") %>% 
   select(-BlockType) %>% rename(BlockType=BlockTypeCoded)
@@ -449,17 +497,166 @@ gambling.pfagg <- left_join(gambling.pfagg %>% select(-RT) %>%
 #write_csv(gambling.pfagg, "../../bin/gambling_pfagg.csv")
 ```
 
-```{r}
-gambling.cfagg <- read_csv("../../bin/gambling_cfagg.csv")
-gambling.pfagg <- read_csv("../../bin/gambling_pfagg.csv")
+Load clean data and select one subj data
 
-gambling.pfagg %>% filter(HCPID=="100307_fnca") %>%
-  ggplot(aes(x = PreviousFeedback, y = PSwitch, , group = BlockType)) +
-  facet_grid( ~ BlockType, labeller = label_both) +
-  geom_line(alpha=.5) + 
-  geom_point(alpha=.5, size=3, aes(col=PreviousFeedback)) +
-  ylim(0,1) +
-  theme_pander() +
-  ggtitle("SUB-100307")
+Note: here, ResponseSwitch is 1 if: CurrentResponse != FutureResponse; is 0 if CurrentResponse==FutureResponse
+
+```{r}
+gambling.clean <- read_csv("../../bin/gambling_clean_data.csv") %>% mutate(BlockType=BlockTypeCoded)
+subjID = "102311_fnca"
+
+#  Pswitch as a function of current trial type and block type
+gambling.cfaggregate = gambling.clean %>%
+  filter(!is.na(ResponseSwitch) & !is.na(CurrentResponse)) %>% 
+  group_by(HCPID, BlockType, TrialType) %>%
+  dplyr::summarise(PSwitch = mean(ResponseSwitch, rm.na=T), RT = mean(RT, rm.na=T))
+
+#  Pswitch as a function of previous trial type and block type
+gambling.pfaggregate = gambling.clean %>%
+  filter(!is.na(ResponseSwitch) & !is.na(PreviousFeedback)) %>% 
+  group_by(HCPID, BlockType, PreviousFeedback) %>%
+  dplyr::summarise(PSwitch = mean(ResponseSwitch, rm.na=T), RT = mean(RT, rm.na=T))
 
 ```
+
+
+```{r eval=FALSE}
+# test whether prop is calculate correctly
+gambling.cfaggregate %>% filter(HCPID==subjID)
+gambling.clean %>% filter(HCPID==subjID) %>%
+  filter(!is.na(ResponseSwitch)) %>%
+  group_by(BlockType, TrialType , ResponseSwitch) %>%
+  dplyr::summarise(n=n()) %>%
+  mutate(freq = n / sum(n)) %>%
+  xtable() %>% kable(digits=4) %>% kable_styling(bootstrap_options = c("striped", "hover"))
+
+#>> yes correct
+```
+
+
+Visualize subject Pswitch pattern as a function of previous feedback
+
+```{r}
+PSwitch.aggplot(gambling.cfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
+PSwitch.pfaggplot(gambling.pfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
+
+```
+
+
+# Calculate RMSE and Find Best Fit Parameter
+
+Distribution of model1 parameters :ans, :bll, :lf
+
+Note: This is not grid-search parameter fitting. The parameter space was chosen by optimization function
+by adding null_penalty (count of null responses)
+
+```{r}
+dim(model1.raw)
+
+model1.full.count <- clean_previous_future(count_responses(model1.raw))
+
+model1.full.agg <- model1.full.count %>% 
+  filter(!is.na(ResponseSwitch) & !is.na(CurrentResponse)) %>%
+  group_by(ans, bll, lf, BlockType, TrialType) %>%
+  dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+
+model1.full.agg %>% gghistogram(x="ans", binwidth = .05)
+model1.full.agg %>% gghistogram(x="bll", binwidth = .05)
+model1.full.agg %>% gghistogram(x="lf", binwidth = .05)
+
+```
+
+
+Distribution model2 parameter :egs, :alpha, and :r
+
+
+```{r}
+dim(model2.raw)
+
+model2.full.count <- clean_previous_future(count_responses(model2.raw))
+
+model2.full.agg <- model2.full.count %>% 
+  filter(!is.na(ResponseSwitch) & !is.na(CurrentResponse)) %>%
+  group_by(egs, alpha, r, BlockType, TrialType) %>%
+  dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
+
+model2.full.agg %>% gghistogram(x="egs", binwidth = .05)
+model2.full.agg %>% gghistogram(x="alpha", binwidth = .05)
+model2.full.agg %>% gghistogram(x="r", binwidth = .05)
+
+```
+
+
+Next, we calalculate RMSE for each parameter combination, find the best parameter with min RMSE
+
+
+```{r}
+find_best_parameter <- function(model, model.agg, sub.agg) {
+  if (model=="model1") {
+    m1.param <- unique(model.agg[,c('ans','bll','lf')])
+    #m1.param=m1.param[1:10,]
+    m1.param$RMSE = NA
+    m1.param$RMSE = as.numeric(m1.param$RMSE)
+    
+    for (i in 1:nrow(m1.param)) {
+      m1.agg <- model.agg %>% 
+        filter(ans==m1.param[[i,'ans']] & bll==m1.param[[i,'bll']] & lf==m1.param[[i,'lf']])
+        rmse_value <- rmse(m1.agg$PSwitch, sub.agg$PSwitch)
+      m1.param[[i, 'RMSE']] <- rmse_value
+    }
+    return (m1.param)
+  } else {
+    m2.param <- unique(model.agg[,c('egs','alpha','r')])
+    #m2.param=m2.param[1:10,]
+    m2.param$RMSE = NA
+    m2.param$RMSE = as.numeric(m2.param$RMSE)
+    
+    for (i in 1:nrow(m2.param)) {
+      m2.agg <- model.agg %>% 
+        filter(egs==m2.param[[i,'egs']] & alpha==m2.param[[i,'alpha']] & r==m2.param[[i,'r']])
+        rmse_value <- rmse(m2.agg$PSwitch, sub.agg$PSwitch)
+      m2.param[[i, 'RMSE']] <- rmse_value
+    }
+    return (m2.param)
+  }
+  
+}
+
+m1.bestp <- find_best_parameter("model1", model1.full.agg, gambling.cfaggregate)
+m2.bestp <- find_best_parameter("model2", model2.full.agg, gambling.cfaggregate)
+m1.bestp$model = "model1"
+m2.bestp$model = "model2"
+
+```
+
+
+
+```{r}
+
+m1.bestp <- m1.bestp[order(m1.bestp$RMSE),]
+m2.bestp <- m2.bestp[order(m2.bestp$RMSE),]
+
+m1.bestp %>% head() %>% xtable() %>% kable(digits=4) %>% kable_styling(bootstrap_options = c("striped", "hover"))
+m2.bestp %>% head() %>% xtable() %>% kable(digits=4) %>% kable_styling(bootstrap_options = c("striped", "hover"))
+
+m1.bestp[[1,'ans']]
+```
+
+
+
+By looking at min RMSE:
+
+Best parameter chosen for model1 :ans=`r m1.bestp[[1,'ans']]` :bll=`r m1.bestp[[1,'bll']]`, :lf=`r m1.bestp[[1,'lf']]`
+
+Best parameter chosen for model2 is :egs=`r m2.bestp[[1,'egs']]` ; alpha=`r m2.bestp[[1,'alpha']]`, :r=`r m2.bestp[[1,'r']]`
+
+
+# Calculate Log-Likelihood
+
+
+
+
+
+
+
+

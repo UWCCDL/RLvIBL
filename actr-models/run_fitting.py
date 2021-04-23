@@ -13,7 +13,6 @@ import os
 import pandas as pd
 import numpy as np
 import run_model as run
-# import seaborn as sns
 from scipy import optimize
 from sklearn.model_selection import ParameterGrid
 from sklearn.preprocessing import StandardScaler
@@ -110,63 +109,113 @@ def cal_rmse(magg, hagg, target_var="PSwitch"):
 
     return ((magg[target_var] - hagg[target_var]) ** 2).mean() ** .5
 
-def fit_simulation(param_array, HCPID, model, epoch = 50):
-    assert isinstance(param_array, list) & isinstance(model, str) & isinstance(HCPID, str)
+def count_null_response(dat):
+    """
+    This func count the number of null responses in either model_output or human_output
+    :param dat: data
+    :return: count of null response
+    """
+    assert isinstance(dat, pd.core.frame.DataFrame)
+    response_count = dat[["Response"]].value_counts()
+    try:
+        null_count = response_count['']
+    except:
+        return 0
+    return null_count
 
-
-def model1_target_func(param_array, HCPID):
-    # simulate model1 10 time using HCPID=100307_fnca
-    # param_grid = list(ParameterGrid({'ans': [.1, .9], 'lf': [.1, .9], "bll": [.1, .9]}))
-    #assert isinstance(param_array, list) & isinstance(HCPID, str)
+#################### Optimization ####################
+def fit_simulation(model, param_array, HCPID, epoch = 50):
+    """
+    This func running simulation and save log file in local computer
+    :param model: model name. :keyword "model1" :keyword "model2
+    :param param_array: a list of parameters
+    :param HCPID: subject ID
+    :param epoch: number of simulation per parameter set
+    :return: a list of  simulation output dataframe (length = epoch)
+    """
+    # assert isinstance(param_array, list) & isinstance(model, str) & isinstance(HCPID, str)
 
     # decide parameter set
-    param_set = {"ans":param_array[0], "bll":param_array[1], "lf":param_array[2]}
-    epoch = 50
-    model = "model1"
-    #param_set = {"egs": param_array[0], "alpha": param_array[1], "r": param_array[2]}
+    if model=="model1":
+        param_set = {"ans": param_array[0], "bll": param_array[1], "lf": param_array[2]}
+    elif model=="model2":
+        param_set = {"egs": param_array[0], "alpha": param_array[1], "r": param_array[2]}
+    else:
+        param_set = None
+        print("invalid model name")
 
     # run 50 times
-    m_raw = run.simulate(epoch=epoch, model=model, param_set=param_set, export=True, verbose=False,
-                         file_suffix="_"+HCPID+"_log", HCPID=HCPID)
-    magg = cal_prob_switch(add_switch(add_previous_feedbck(reformat_model_data(m_raw))))
-    hagg = cal_prob_switch(load_subj(HCPID)) # load one subj given HCPID
-    rmse = cal_rmse(magg, hagg, target_var="PSwitch")
-    print(">>", param_set, "rmse =",rmse)
-    return rmse
+    model_output = run.simulate(epoch=epoch, model=model, param_set=param_set, export=True, verbose=False,
+                         file_suffix="_" + HCPID + "_log", HCPID=HCPID)
+    return model_output
 
-def model2_target_func(param_array, HCPID):
-    #assert isinstance(param_array, list) & isinstance(HCPID, str)
+def model_target_func(param_array, HCPID, model):
+    """
+    This func serves as target function to find optimal parameter
+    :param param_array: parameter set of three. If model1 is passed in, then three parameters are :ans, :bll, :lf.
+    If model2 is passed in, then three paramters are :egs, :alpha, :r
+    :param HCPID: subject ID number
+    :param model: model name: "model1" or "model2"
+    :return: target value for minimization
+    """
+    targ_value = None
 
-    # decide parameter set
-    param_set = {"egs": param_array[0], "alpha": param_array[1], "r": param_array[2]}
-    epoch = 50
-    model = "model2"
+    # run fitting simulation based on parameter_set, and HCPID
+    model_output = fit_simulation(model, param_array, HCPID, epoch = 50)
 
-    # run 50 times
-    m_raw = run.simulate(epoch=epoch, model=model, param_set=param_set, export=True, verbose=False,
-                         file_suffix="_"+HCPID+"_log", HCPID=HCPID)
-    magg = cal_prob_switch(add_switch(add_previous_feedbck(reformat_model_data(m_raw))))
-    hagg = cal_prob_switch(load_subj(HCPID)) # load one subj given HCPID
-    rmse = cal_rmse(magg, hagg, target_var="PSwitch")
-    print(">>", param_set, "rmse =",rmse)
-    return rmse
+    # calcualte rmse
+    hdat = load_subj(HCPID) # load one subj given HCPID
+    mdat = add_switch(add_previous_feedbck(reformat_model_data(model_output)))
+    magg = cal_prob_switch(mdat)
+    hagg = cal_prob_switch(hdat)
+    rmse_value = cal_rmse(magg, hagg, target_var="PSwitch")
+    print(">>", param_array, "rmse =", rmse_value)
 
-def estimate_param_model1(HCPID):
+    # add penalty term
+    null_penalty = abs(int(count_null_response(mdat) - int(count_null_response(hdat))))
+
+    targ_value = rmse_value + null_penalty
+    return targ_value
+
+# def model2_target_func(param_array, HCPID):
+#     assert isinstance(param_array, list) & isinstance(HCPID, str)
+#
+#     # decide parameter set
+#     param_set = {"egs": param_array[0], "alpha": param_array[1], "r": param_array[2]}
+#     epoch = 50
+#     model = "model2"
+#
+#     # run 50 times
+#     m_raw = run.simulate(epoch=epoch, model=model, param_set=param_set, export=True, verbose=False,
+#                          file_suffix="_"+HCPID+"_log", HCPID=HCPID)
+#     magg = cal_prob_switch(add_switch(add_previous_feedbck(reformat_model_data(m_raw))))
+#     hagg = cal_prob_switch(load_subj(HCPID)) # load one subj given HCPID
+#     rmse = cal_rmse(magg, hagg, target_var="PSwitch")
+#     print(">>", param_set, "rmse =",rmse)
+#     return rmse
+
+def estimate_param_model(HCPID, model):
+    """
+    This func estimates the optimal parameter set for specific subj
+    :param HCPID: Subj ID
+    :param model: model name, either "model1" or "model2
+    :return: optimization output
+    """
     init = [.1, .1, .1]  #:ans       :bll        :lf
     bounds = [(0, 5), (0, 1), (0, 5)]
-    minmum = optimize.minimize(model1_target_func, init, args=(HCPID), method='Powell', tol=1e-5, bounds=bounds,
+    minmum = optimize.minimize(model_target_func, init, args=(HCPID, model), method='Powell', tol=1e-5, bounds=bounds,
                                  options={"maxiter": 200, "ftol": 0.0001, "xtol": 0.0001, "disp": True,
                                           "return_all": True})
     return minmum
 
 
-def estimate_param_model2(HCPID):
-    init = [.1, .1, .1]  #:egs       :alpha        :r
-    bounds = [(0, 5), (0, 1), (0, 100)]
-    minmum = optimize.minimize(model2_target_func, init, args=(HCPID), method='Powell', tol=1e-5, bounds=bounds,
-                               options={"maxiter": 200, "ftol": 0.0001, "xtol": 0.0001, "disp": True,
-                                        "return_all": True})
-    return minmum
+# def estimate_param_model2(HCPID):
+#     init = [.1, .1, .1]  #:egs       :alpha        :r
+#     bounds = [(0, 5), (0, 1), (0, 100)]
+#     minmum = optimize.minimize(model2_target_func, init, args=(HCPID), method='Powell', tol=1e-5, bounds=bounds,
+#                                options={"maxiter": 200, "ftol": 0.0001, "xtol": 0.0001, "disp": True,
+#                                         "return_all": True})
+#     return minmum
 
 #################### NOT USE ####################
 # def calPSwitch(dat, human):
@@ -191,6 +240,11 @@ def estimate_param_model2(HCPID):
 #     sns.set_theme()
 #     g = sns.FacetGrid(dat, col="BlockType", hue="PreviousFeedback")
 #     g.map(sns.pointplot, "PreviousFeedback", "PSwitch", order=["Reward", "Punishment", "Neutral"])
+
+
+
+
+
 #################### TEST ####################
 def test_unit1():
     """Some hits:
@@ -229,8 +283,8 @@ def test_unit2():
     bounds = [(0, 5), (0,1), (0, 5)]
 
     # minimum = optimize.fmin_powell(target_func, init, maxiter=200, full_output=True, retall=True)
-    minimum2 = optimize.minimize(model1_target_func(), init, args=("100307_fcna"), method='Powell', tol=1e-10, bounds=bounds,
-                                 options={"maxiter":200,"ftol":0.0001, "xtol":0.0001, "disp":True, "return_all":True})
+    minimum2 = optimize.minimize(model_target_func, init, args=("102311_fcna", "model1"), method='Powell',
+                                 bounds=bounds, options={"maxiter":200,"ftol":0.0001, "xtol":0.01, "disp":True, "return_all":True})
 
     # test {'ans': 0.6905457428133445, 'bll': 0.046858992021032525, 'lf': 1.3775874589422552} rmse = 0.234849677208153
     # Optimization terminated successfully.
@@ -250,6 +304,12 @@ def test_unit2():
     #        x: array([0.69059423, 0.04685987, 1.37759088])
 
     return minimum2
+
+def test_unit3():
+    model_output = run.simulate(epoch=5, model="model1", param_set={"ans":1.1831138, "bll":0.5401689, "lf":3.09},
+                                export=False, verbose=True,
+                                file_suffix="", HCPID="102311_fnca")
+    return model_output
 
 
 

@@ -1,0 +1,7 @@
+.DS_store
+actr-models/__pycache__
+actr-models/model_output/gambling_model_cache
+actr-models/model_output/gambling_model_files
+actr-models/.ideas
+actr-models/old
+actr-models/venv
