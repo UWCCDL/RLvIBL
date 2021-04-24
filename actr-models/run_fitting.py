@@ -205,8 +205,8 @@ def estimate_param(HCPID, model):
     if model=="model1": bounds = [(0, 5), (0, 1), (0, 5)]  #:ans       :bll        :lf
     elif model=="model2": bounds = [(0, 5), (0, 1), (0, None)]  #:egs       :alpha        :r
     else: print("wrong model name")
-    minmum = optimize.minimize(model_target_func, init, args=(HCPID, model), method='Powell', tol=1e-5, bounds=bounds,
-                                 options={"maxiter": 200, "ftol": 0.0001, "xtol": 0.0001, "disp": True,
+    minmum = optimize.minimize(model_target_func, init, args=(HCPID, model), method='Powell', tol=1e-3, bounds=bounds,
+                                 options={"maxiter": 200, "ftol": 1e-4, "xtol": 1e-3, "disp": True,
                                           "return_all": True})
     return minmum
 
