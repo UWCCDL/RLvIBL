@@ -16,13 +16,15 @@ def reformat_optimal_output(HCPID, m1_min, m2_min, t0, t1, t2):
 	min_output["model1_best_ans"] = [m1_min.x[0]]
 	min_output["model1_best_bll"] = [m1_min.x[1]]
 	min_output["model1_best_lf"] = [m1_min.x[2]]
+	min_output["model1_obj_value"] = [m1_min.fun]
 	min_output["model1_details"] = [str(m1_min)]
 
 	min_output["model2_time"] = [t2-t1]
 	min_output["model2_sucess"] = [m2_min.success]
-	min_output["model1_best_egs"] = [m2_min.x[0]]
-	min_output["model1_best_alpha"] = [m2_min.x[1]]
-	min_output["model1_best_r"] = [m2_min.x[2]]
+	min_output["model2_best_egs"] = [m2_min.x[0]]
+	min_output["model2_best_alpha"] = [m2_min.x[1]]
+	min_output["model2_best_r"] = [m2_min.x[2]]
+	min_output["model2_obj_value"] = [m2_min.fun]
 	min_output["model2_details"] = [str(m2_min)]
 	df = pd.DataFrame.from_dict(min_output)
 	return df
