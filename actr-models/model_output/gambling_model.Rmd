@@ -113,95 +113,149 @@ clean_previous_future <- function(model.dat) {
 #model1.count <- clean_previous_future(count_responses(model1))
 ```
 
+Aggregate PSwitch, RT by ParamID, TrialType, BlockType
 
 ```{r}
-aggregate.CurrentTrial <- function(model.dat) {
-  model.aggregate <- model.dat %>%
+### This aggregate looks at overall, what is the average pattern of 50 simulation (50 epoch) across different parameter set
+
+# aggregate data by parameter set, BlockType, TrialType
+m1.aggregate.ByParam.CurrentResponse.BlockType <- function(m1.dat) {
+  res <- m1.dat %>%
+    filter(!is.na(ResponseSwitch) & !is.na(CurrentResponse)) %>%
+    group_by(ans, bll, lf, BlockType, TrialType) %>%
+    dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT)) %>%
+    ungroup() %>%
+    mutate(ParamID = group_indices(., ans, bll, lf))
+  return(res)
+}
+
+m2.aggregate.ByParam.CurrentResponse.BlockType <- function(m2.dat) {
+  res <- m2.dat %>%
+    filter(!is.na(ResponseSwitch) & !is.na(CurrentResponse)) %>%
+    group_by(egs, alpha, r, BlockType, TrialType) %>%
+    dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT)) %>%
+    ungroup() %>%
+    mutate(ParamID = group_indices(., egs, alpha, r))
+  return(res)
+}
+
+# aggregate data by parameter set, BlockType, PreviousFeedback
+m1.aggregate.ByParam.PreviousFeedback.BlockType <- function(m1.dat) {
+  res <- m1.dat %>%
+    filter(!is.na(ResponseSwitch) & !is.na(PreviousFeedback) & !is.na(CurrentResponse)) %>%
+    group_by(ans, bll, lf, BlockType, PreviousFeedback) %>%
+    dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))%>%
+    ungroup() %>%
+    mutate(ParamID = group_indices(., ans, bll, lf))
+  return(res)
+}
+
+m2.aggregate.ByParam.PreviousFeedback.BlockType <- function(m2.dat) {
+  res <- m2.dat %>%
+    filter(!is.na(ResponseSwitch) & !is.na(PreviousFeedback) & !is.na(CurrentResponse)) %>%
+    group_by(egs, alpha, r, BlockType, PreviousFeedback) %>%
+    dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))%>%
+    ungroup() %>%
+    mutate(ParamID = group_indices(., egs, alpha, r))
+  return(res)
+}
+
+
+model1.aggregate <- m1.aggregate.ByParam.CurrentResponse.BlockType(model1.count)
+```
+
+Aggregate PSwitch, RT by Epoch, TrialType, BlockType. (This only fit for one param set)
+
+```{r}
+### This aggregate looks at for single parameter set, how consistent 50 runs are
+
+# aggregate data by Epoch, BlockType, PreviousFeedback
+aggregate.ByEpoch.CurrentResponse.BlockType <- function(m.dat) {
+  res <- m.dat %>%
   filter(!is.na(ResponseSwitch) & !is.na(CurrentResponse)) %>%
   group_by(Epoch, BlockType, TrialType) %>%
   dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
-  return (model.aggregate)
+  return (res)
 }
 
-aggregate.PreviousTrial <- function(model.dat) {
-  model.aggregate <- model.dat %>%
+aggregate.ByEpoch.PreviousFeedback.BlockType <- function(m.dat) {
+  res <- m.dat %>%
   filter(!is.na(ResponseSwitch) & !is.na(PreviousFeedback) & !is.na(CurrentResponse)) %>%
   group_by(Epoch, BlockType, PreviousFeedback) %>%
   dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
-  return (model.aggregate)
+  return (res)
 }
+model1.aggregate <- m1.aggregate.ByParam.CurrentResponse.BlockType(model1.count)
 
-#model1.aggregate <- aggregate.CurrentTrial(model1.count)
-#model1.aggregate
 ```
 
+
 ```{r}
-PSwitch.aggplot <- function(aggregate.dat, subjID) {
-  # res <- ggplot(aggregate.dat,
-  #      aes(x = TrialType, y = PSwitch, col = TrialType)) +
-  # facet_grid( ~ BlockType) +
-  # geom_point(alpha = 0.3, size=3) +
-  # scale_color_brewer(palette = "Set2") +
-  # stat_summary(fun.data = "mean_cl_boot", col="black") +
-  # ylim(0,1) +
-  # theme_pander()
-  
-  if(!is.na(subjID)) {
-    res <- ggplot(aggregate.dat %>% filter(HCPID==subjID), 
+# plot subject aggregated data, PSwitch by TrialType x BlockType
+subj.PSwitch.aggplot <- function(subj.dat, subjID) {
+  res <- ggplot(subj.dat %>% filter(HCPID==subjID), 
                   aes(x = TrialType, y = PSwitch)) +
     facet_grid( ~ BlockType) +
     geom_line(aes(group = BlockType), alpha=.5) + 
     geom_point(alpha=.5, size=3, aes(col=TrialType)) +
     ylim(0,1) +
     theme_pander()
-   
-  } else {
-    res <- ggplot(aggregate.dat, aes(x = TrialType, y = PSwitch, col = Epoch)) +
-    facet_grid( ~ BlockType) +
-    geom_line(aes(group = Epoch), alpha=.5) + 
-    geom_point(alpha=.5, size=3) +
-    ylim(0,1) +
-    guides(col=FALSE) +
-    stat_summary(fun.data = "mean_cl_boot", col="black") +
-    theme_pander()
-  }
-  
-  return(res)
+  return (res)
 }
-RT.aggplot <- function(aggregate.dat, subjID) {
-  # res <- ggplot(aggregate.dat,
-  #      aes(x = TrialType, y = RT, col = TrialType)) +
-  # facet_grid( ~ BlockType) +
-  # geom_point(position = position_jitter(width = 0.1, height = 0.05),
-  #            alpha = 0.3, size=3) +
-  # scale_color_brewer(palette = "Set2") +
-  # stat_summary(fun.data = "mean_cl_boot", col="black") +
-  # ylim(0,2) +
-  # theme_pander()
-  if(!is.na(subjID)) {
-    
-    # plot  human data
-    res <- ggplot(aggregate.dat %>% filter(HCPID==subjID), 
-                  aes(x = TrialType, y = RT)) +
-    facet_grid( ~ BlockType) +
-    geom_line(aes(group = BlockType), alpha=.5) + 
-    geom_point(alpha=.5, size=3, aes(col=TrialType)) +
-    ylim(0,1) +
-    theme_pander()
-  
-    # plot model data
+
+# plot model aggregated data, PSwitch by TrialType x BlockType x ParamID/Epoch
+m.PSwitch.aggplot <- function(m.dat, byParam) {
+  if (byParam=="ParamID") {
+    res <- ggplot(m.dat, aes(x = TrialType, y = PSwitch, col = ParamID)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = ParamID), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      ylim(0,1) +
+      stat_summary(fun.data = "mean_cl_boot", col="black") +
+      theme_pander()
+  } 
+  if (byParam=="Epoch") {
+    res <- ggplot(model1.aggregate, aes(x = TrialType, y = PSwitch, col = Epoch)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = Epoch), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      ylim(0,1) +
+      stat_summary(fun.data = "mean_cl_boot", col="black") +
+      theme_pander()
   } else {
-    res <- ggplot(aggregate.dat, aes(x = TrialType, y = RT, col = Epoch)) +
-    facet_grid( ~ BlockType) +
-    geom_line(aes(group = Epoch), alpha=.5) + 
-    geom_point(alpha=.5, size=3) +
-    ylim(0,1500) +
-    guides(col=FALSE) +
-    stat_summary(fun.data = "mean_cl_boot", col="black") +
-    theme_pander()
+    print("Choose one: ParamID or Epoch")
   }
-  return(res)
+  return (res)
 }
+
+# plot model aggregated data, T by TrialType x BlockType x ParamID/Epoch
+m.RT.aggplot <- function(m.dat, byParam) {
+  if (byParam=="ParamID") {
+    res <- ggplot(m.dat, aes(x = TrialType, y = RT, col = ParamID)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = ParamID), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      ylim(0,3500) +
+      stat_summary(fun.data = "mean_cl_boot", col="black") +
+      theme_pander()
+  } 
+  if (byParam=="Epoch") {
+    res <- ggplot(model1.aggregate, aes(x = TrialType, y = RT, col = Epoch)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = Epoch), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      ylim(0,3500) +
+      stat_summary(fun.data = "mean_cl_boot", col="black") +
+      theme_pander()
+  } else {
+    print("Choose one: ParamID or Epoch")
+  }
+  return (res)
+}
+
+
+#m.PSwitch.aggplot(model1.aggregate, "ParamID")
+#m.RT.aggplot(model1.aggregate, "ParamID")
 
 ```
 
@@ -209,23 +263,22 @@ RT.aggplot <- function(aggregate.dat, subjID) {
 Let's look at the PSwitch and RT as a function of Current TrialType
 
 ```{r}
-model1.count <- clean_previous_future(count_responses(model1))
-model2.count <- clean_previous_future(count_responses(model2))
+model1.count <- clean_previous_future(count_responses(model1.raw))
+model2.count <- clean_previous_future(count_responses(model2.raw))
 
 
-model1.aggregate <- aggregate.CurrentTrial(model1.count)
-model2.aggregate <- aggregate.CurrentTrial(model2.count)
-
+model1.aggregate <- aggregate.ByParam.CurrentResponse.BlockType(model1.count)
+model2.aggregate <- aggregate.ByParam.CurrentResponse.BlockType(model2.count)
 ```
 
 
 ```{r}
-PSwitch.aggplot(model1.aggregate, NA) + ggtitle("MODEL1")
-PSwitch.aggplot(model2.aggregate, NA) + ggtitle("MODEL2")
+m.PSwitch.aggplot(model1.aggregate, "ParamID") + ggtitle("MODEL1")
+m.PSwitch.aggplot(model2.aggregate, "ParamID") + ggtitle("MODEL2")
 
 
-RT.aggplot(model1.aggregate, NA) + ggtitle("MODEL1")
-RT.aggplot(model2.aggregate, NA) + ggtitle("MODEL1")
+m.RT.aggplot(model1.aggregate, "ParamID") + ggtitle("MODEL1")
+m.RT.aggplot(model2.aggregate, "ParamID") + ggtitle("MODEL1")
 ```
 
 ### Summary of Pswitch vs. CurrentTrial
@@ -243,90 +296,81 @@ Model2:
 
 
 ```{r}
-model1.pf_aggregate <- aggregate.PreviousTrial(model1.count)
-model2.pf_aggregate <- aggregate.PreviousTrial(model2.count)
+model1.pf_aggregate <- m1.aggregate.ByParam.PreviousFeedback.BlockType(model1.count)
+model2.pf_aggregate <- m2.aggregate.ByParam.PreviousFeedback.BlockType(model2.count)
 
 ```
 
 ```{r}
-PSwitch.pfaggplot <- function(aggregate.dat, subjID) {
-  # res <- ggplot(aggregate.dat,
-  #      aes(x = PreviousFeedback, y = PSwitch, col = PreviousFeedback, 
-  #          group = PreviousFeedback)) +
-  # facet_grid( ~ BlockType, labeller = label_both) +
-  # geom_point(alpha = 0.3, size=3) +
-  # scale_color_brewer(palette = "Set2") +
-  # stat_summary(fun.data = "mean_cl_boot", col="black") +
-  # ylim(0,1) +
-  # theme_pander()
-  
-  # plot subject
-  if(!is.na(subjID)) {
-    res <- ggplot(aggregate.dat %>% filter(HCPID==subjID), 
+# plot subject aggregated data, PSwitch by PreviousFeedback x BlockType
+subj.PSwitch.pfaggplot <- function(subj.dat, subjID) {
+  res <- ggplot(subj.dat %>% filter(HCPID==subjID), 
                   aes(x = PreviousFeedback, y = PSwitch)) +
     facet_grid( ~ BlockType) +
     geom_line(aes(group = BlockType), alpha=.5) + 
     geom_point(alpha=.5, size=3, aes(col=PreviousFeedback)) +
     ylim(0,1) +
     theme_pander()
-   
-    # plot model
-  } else {
-    res <- aggregate.dat %>% 
-    ggplot(aes(x = PreviousFeedback, y = PSwitch, col  = Epoch)) +
-    facet_grid( ~ BlockType, labeller = label_both) +
-    geom_line(aes(group = Epoch), alpha=.5) + 
-    geom_point(alpha=.5, size=3) +
-    ylim(0,1) +
-    guides(col=FALSE) +
-    stat_summary(fun.data = "mean_cl_boot", col="black") +
-    theme_pander()
-  }
-  
-  return(res)
+  return (res)
 }
 
-RT.pfaggplot <- function(aggregate.dat, subjID) {
-  # res <- ggplot(aggregate.dat,
-  #      aes(x = PreviousFeedback, y = RT, col = PreviousFeedback)) +
-  # facet_grid( ~ BlockType, labeller = label_both) +
-  # geom_point(alpha = 0.3, size=3) +
-  # scale_color_brewer(palette = "Set2") +
-  # ylim(0,1) +
-  # stat_summary(fun.data = "mean_cl_boot", col="black") +
-  # theme_pander()
-  
-  # plot subject
-  if(!is.na(subjID)) {
-    res <- ggplot(aggregate.dat %>% filter(HCPID==subjID), 
-                  aes(x = PreviousFeedback, y = RT)) +
-    facet_grid( ~ BlockType) +
-    geom_line(aes(group = BlockType), alpha=.5) + 
-    geom_point(alpha=.5, size=3, aes(col=PreviousFeedback)) +
-    ylim(0,1) +
-    theme_pander()
-   
-    # plot model
+# plot model aggregated data, PSwitch by PreviousFeedback x BlockType x ParamID/Epoch
+m.PSwitch.pfaggplot <- function(m.dat, byParam) {
+  if (byParam=="ParamID") {
+    res <- ggplot(m.dat, aes(x = PreviousFeedback, y = PSwitch, col = ParamID)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = ParamID), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      ylim(0,1) +
+      stat_summary(fun.data = "mean_cl_boot", col="black") +
+      theme_pander()
+  } 
+  if (byParam=="Epoch") {
+    res <- ggplot(model1.aggregate, aes(x = PreviousFeedback, y = PSwitch, col = Epoch)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = Epoch), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      ylim(0,1) +
+      stat_summary(fun.data = "mean_cl_boot", col="black") +
+      theme_pander()
   } else {
-    res <- aggregate.dat %>% 
-    ggplot(aes(x = PreviousFeedback, y = RT, col  = Epoch)) +
-    facet_grid( ~ BlockType, labeller = label_both) +
-    geom_line(aes(group = Epoch), alpha=.5) + 
-    geom_point(alpha=.5, size=3) +
-    ylim(0,1500) +
-    guides(col=FALSE) +
-    stat_summary(fun.data = "mean_cl_boot", col="black") +
-    theme_pander()
+    print("Choose one: ParamID or Epoch")
   }
-  return(res)
+  return (res)
 }
+
+# plot model aggregated data, T by TrialType x BlockType x ParamID/Epoch
+m.RT.pfaggplot <- function(m.dat, byParam) {
+  if (byParam=="ParamID") {
+    res <- ggplot(m.dat, aes(x = PreviousFeedback, y = RT, col = ParamID)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = ParamID), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      ylim(0,3500) +
+      stat_summary(fun.data = "mean_cl_boot", col="black") +
+      theme_pander()
+  } 
+  if (byParam=="Epoch") {
+    res <- ggplot(model1.aggregate, aes(x = PreviousFeedback, y = RT, col = Epoch)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = Epoch), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      ylim(0,3500) +
+      stat_summary(fun.data = "mean_cl_boot", col="black") +
+      theme_pander()
+  } else {
+    print("Choose one: ParamID or Epoch")
+  }
+  return (res)
+}
+
 ```
 
 
 Let's visualize it 
 ```{r}
-PSwitch.pfaggplot(model1.pf_aggregate, NA) + ggtitle("MODEL1")
-PSwitch.pfaggplot(model2.pf_aggregate, NA) + ggtitle("MODEL2")
+m.PSwitch.pfaggplot(model1.pf_aggregate, "ParamID") + ggtitle("MODEL1")
+m.PSwitch.pfaggplot(model2.pf_aggregate, "ParamID") + ggtitle("MODEL2")
 ```
 
 ```{r eval=F}
@@ -517,7 +561,9 @@ gambling.pfaggregate = gambling.clean %>%
   group_by(HCPID, BlockType, PreviousFeedback) %>%
   dplyr::summarise(PSwitch = mean(ResponseSwitch, rm.na=T), RT = mean(RT, rm.na=T))
 
+
 ```
+
 
 
 ```{r eval=FALSE}
@@ -537,8 +583,8 @@ gambling.clean %>% filter(HCPID==subjID) %>%
 Visualize subject Pswitch pattern as a function of previous feedback
 
 ```{r}
-PSwitch.aggplot(gambling.cfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
-PSwitch.pfaggplot(gambling.pfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
+subj.PSwitch.aggplot(gambling.cfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
+subj.PSwitch.pfaggplot(gambling.pfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
 
 ```
 
@@ -619,7 +665,6 @@ find_best_parameter <- function(model, model.agg, sub.agg) {
     }
     return (m2.param)
   }
-  
 }
 
 m1.bestp <- find_best_parameter("model1", model1.full.agg, gambling.cfaggregate)

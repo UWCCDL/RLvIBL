@@ -83,7 +83,7 @@ def add_switch(dat):
     dat.loc[dat["BlockTrial"] == 0, "ResponseSwitch"] = np.nan
     return dat
 
-def cal_prob_switch(dat, group_vars=["BlockType", "PreviousFeedback"]):
+def cal_prob_switch(dat, group_vars=["BlockType", "TrialType"]):
     """
     This func calculates PSwitch by group variables: BlockType and PreviousFeedback
     :param dat:
@@ -95,7 +95,7 @@ def cal_prob_switch(dat, group_vars=["BlockType", "PreviousFeedback"]):
     res = res.rename(columns={"ResponseSwitch": "PSwitch"})
     return res
 
-def cal_rmse(magg, hagg, target_var="PSwitch"):
+def cal_rmse(magg, hagg, target_var="PSwitch", group_vars=["BlockType","TrialType"]):
     """
     This func calculates the RMSE of model aggregated df vs. human aggregated df by target_var ("PSwitch")
     :param mdat: model data
@@ -104,8 +104,8 @@ def cal_rmse(magg, hagg, target_var="PSwitch"):
     :return: RMSE
     """
     # make sure the condition matches order
-    assert (magg["BlockType"].to_list()==hagg["BlockType"].to_list()) & \
-           (magg["PreviousFeedback"].to_list()==hagg["PreviousFeedback"].to_list())
+    assert (magg[group_vars[0]].to_list()==hagg[group_vars[0]].to_list()) & \
+           (magg[group_vars[1]].to_list()==hagg[group_vars[1]].to_list())
 
     return ((magg[target_var] - hagg[target_var]) ** 2).mean() ** .5
 
@@ -166,15 +166,15 @@ def model_target_func(param_array, HCPID, model):
     # calcualte rmse
     hdat = load_subj(HCPID) # load one subj given HCPID
     mdat = add_switch(add_previous_feedbck(reformat_model_data(model_output)))
-    magg = cal_prob_switch(mdat)
-    hagg = cal_prob_switch(hdat)
-    rmse_value = cal_rmse(magg, hagg, target_var="PSwitch")
-    print(">>", param_array, "rmse =", rmse_value)
+    magg = cal_prob_switch(mdat, group_vars=["BlockType", "TrialType"])
+    hagg = cal_prob_switch(hdat, group_vars=["BlockType", "TrialType"])
+    rmse_value = cal_rmse(magg, hagg, target_var="PSwitch", group_vars=["BlockType","TrialType"])
 
     # add penalty term
     null_penalty = abs(int(count_null_response(mdat) - int(count_null_response(hdat))))
 
     targ_value = rmse_value + null_penalty
+    print(">>", param_array, "rmse =", rmse_value, "targ_value =", targ_value)
     return targ_value
 
 # def model2_target_func(param_array, HCPID):
@@ -194,20 +194,21 @@ def model_target_func(param_array, HCPID, model):
 #     print(">>", param_set, "rmse =",rmse)
 #     return rmse
 
-def estimate_param_model(HCPID, model):
+def estimate_param(HCPID, model):
     """
     This func estimates the optimal parameter set for specific subj
     :param HCPID: Subj ID
     :param model: model name, either "model1" or "model2
     :return: optimization output
     """
-    init = [.1, .1, .1]  #:ans       :bll        :lf
-    bounds = [(0, 5), (0, 1), (0, 5)]
+    init = [.1, .1, .1]
+    if model=="model1": bounds = [(0, 5), (0, 1), (0, 5)]  #:ans       :bll        :lf
+    elif model=="model2": bounds = [(0, 5), (0, 1), (0, None)]  #:egs       :alpha        :r
+    else: print("wrong model name")
     minmum = optimize.minimize(model_target_func, init, args=(HCPID, model), method='Powell', tol=1e-5, bounds=bounds,
                                  options={"maxiter": 200, "ftol": 0.0001, "xtol": 0.0001, "disp": True,
                                           "return_all": True})
     return minmum
-
 
 # def estimate_param_model2(HCPID):
 #     init = [.1, .1, .1]  #:egs       :alpha        :r

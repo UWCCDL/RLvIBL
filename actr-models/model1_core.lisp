@@ -27,9 +27,9 @@
      :ult nil                   ; Utility Learning Trace
      :act t                     ; Activation trace
      ;---------- activation parameters (3) ----------
-     :rt -10                     ; Retrieval Threshold
-     :lf 3.09                   ; Decay Rate
-     :bll 0.5401689                  ; Base-Level-Learning
+     :rt -100                     ; Retrieval Threshold
+     :lf .9                   ; Decay Rate
+     :bll 0.2                  ; Base-Level-Learning
      ;:blc 1                    ; Base-Level-Constant
      ;:ol nil                   ; Optimal Learning
      :ans 1.1831138                  ; Noise

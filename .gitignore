@@ -5,3 +5,5 @@ actr-models/model_output/gambling_model_files
 actr-models/.ideas
 actr-models/old
 actr-models/venv
+actr-models/.idea/workspace.xml
+actr-models/model_output/old/*.csv
