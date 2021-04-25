@@ -210,6 +210,18 @@ def estimate_param(HCPID, model):
                                           "return_all": True})
     return minmum
 
+
+def grid_seach_estimate_param(HCPID, model):
+    param_set_list = []
+    if model=="model1":
+        param_set_list = [{"ans": 0.05, "bll": 0.5, "lf": 0.5}, {"ans": 0.1, "bll": 0.5, "lf": 0.5}, {"ans": 0.5, "bll": 0.5, "lf": 0.5}]     
+    elif model=="model2":
+        param_set_list = [{"egs": 0.05, "alpha": 0.2, "r": 1}, {"egs": 0.1, "alpha": 0.2, "r": 1}, {"egs": 0.5, "alpha": 0.2, "r": 1}] 
+
+    for param_set in param_set_list:
+        model_output = run.simulate(epoch=100, model=model, param_set=param_set, 
+            export=True, verbose=False, file_suffix="_" + HCPID + "_gs", HCPID=HCPID)
+
 # def estimate_param_model2(HCPID):
 #     init = [.1, .1, .1]  #:egs       :alpha        :r
 #     bounds = [(0, 5), (0, 1), (0, 100)]

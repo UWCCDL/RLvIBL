@@ -57,8 +57,8 @@ The model randomly evaluates an action GUESS-MORE or GUESS-LESS, then retrieving
 The model makes decision relying on procedural memory, pressing "MORE"/"LESS" key. GUESS-MORE and GUESS-LESS productions are competing. In the end, a feedback is given, the model receives either +1/-1/0 reward to all previous productions, and the utility of all previous fired productions will be affected. 
 
 ```{r}
-model1.raw <- read.csv("./MODEL120210423_102311_fnca_log.csv") #%>% rename(Trial=X)
-model2.raw <- read.csv("./MODEL220210423_102311_fnca_log.csv") #%>% rename(Trial=X)
+model1.raw <- read.csv("./MODEL120210424_100307_fnca_log.csv") #%>% rename(Trial=X)
+model2.raw <- read.csv("./MODEL220210424_100307_fnca_log.csv") #%>% rename(Trial=X)
 
 #model1 <- read.csv("MODEL120210420.csv")
 #model2 <- read.csv("MODEL220210420.csv")
@@ -76,8 +76,8 @@ model2.raw <- model2.raw %>%
          Epoch = as.numeric(Epoch)) 
 
 # only 
-model1 <- model1.raw %>% filter(ans==.1 & bll==.1 & lf==.1)
-model2 <- model2.raw %>% filter(alpha==.1 & egs==.1 & r==.1)
+#model1 <- model1.raw %>% filter(ans==.1 & bll==.1 & lf==.1)
+#model2 <- model2.raw %>% filter(alpha==.1 & egs==.1 & r==.1)
 ```
 
 # Compute win-stay probabilities
@@ -110,7 +110,7 @@ clean_previous_future <- function(model.dat) {
   return(model.dat)
 }
 
-#model1.count <- clean_previous_future(count_responses(model1))
+#model1.count <- clean_previous_future(count_responses(model1.raw))
 ```
 
 Aggregate PSwitch, RT by ParamID, TrialType, BlockType
@@ -161,7 +161,7 @@ m2.aggregate.ByParam.PreviousFeedback.BlockType <- function(m2.dat) {
 }
 
 
-model1.aggregate <- m1.aggregate.ByParam.CurrentResponse.BlockType(model1.count)
+#model1.aggregate <- m1.aggregate.ByParam.CurrentResponse.BlockType(model1.count)
 ```
 
 Aggregate PSwitch, RT by Epoch, TrialType, BlockType. (This only fit for one param set)
@@ -185,7 +185,7 @@ aggregate.ByEpoch.PreviousFeedback.BlockType <- function(m.dat) {
   dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
   return (res)
 }
-model1.aggregate <- m1.aggregate.ByParam.CurrentResponse.BlockType(model1.count)
+#model1.aggregate <- m1.aggregate.ByParam.CurrentResponse.BlockType(model1.count)
 
 ```
 
@@ -215,7 +215,7 @@ m.PSwitch.aggplot <- function(m.dat, byParam) {
       theme_pander()
   } 
   if (byParam=="Epoch") {
-    res <- ggplot(model1.aggregate, aes(x = TrialType, y = PSwitch, col = Epoch)) +
+    res <- ggplot(m.dat, aes(x = TrialType, y = PSwitch, col = Epoch)) +
       facet_grid( ~ BlockType) +
       geom_line(aes(group = Epoch), alpha=.5) + 
       geom_point(alpha=.5, size=3) +
@@ -240,7 +240,7 @@ m.RT.aggplot <- function(m.dat, byParam) {
       theme_pander()
   } 
   if (byParam=="Epoch") {
-    res <- ggplot(model1.aggregate, aes(x = TrialType, y = RT, col = Epoch)) +
+    res <- ggplot(m.dat, aes(x = TrialType, y = RT, col = Epoch)) +
       facet_grid( ~ BlockType) +
       geom_line(aes(group = Epoch), alpha=.5) + 
       geom_point(alpha=.5, size=3) +
@@ -267,8 +267,8 @@ model1.count <- clean_previous_future(count_responses(model1.raw))
 model2.count <- clean_previous_future(count_responses(model2.raw))
 
 
-model1.aggregate <- aggregate.ByParam.CurrentResponse.BlockType(model1.count)
-model2.aggregate <- aggregate.ByParam.CurrentResponse.BlockType(model2.count)
+model1.aggregate <- m1.aggregate.ByParam.CurrentResponse.BlockType(model1.count)
+model2.aggregate <- m2.aggregate.ByParam.CurrentResponse.BlockType(model2.count)
 ```
 
 
@@ -547,20 +547,19 @@ Note: here, ResponseSwitch is 1 if: CurrentResponse != FutureResponse; is 0 if C
 
 ```{r}
 gambling.clean <- read_csv("../../bin/gambling_clean_data.csv") %>% mutate(BlockType=BlockTypeCoded)
-subjID = "102311_fnca"
+subjID = "100307_fnca"
 
 #  Pswitch as a function of current trial type and block type
-gambling.cfaggregate = gambling.clean %>%
+subj.cfaggregate = gambling.clean %>%
   filter(!is.na(ResponseSwitch) & !is.na(CurrentResponse)) %>% 
   group_by(HCPID, BlockType, TrialType) %>%
   dplyr::summarise(PSwitch = mean(ResponseSwitch, rm.na=T), RT = mean(RT, rm.na=T))
 
 #  Pswitch as a function of previous trial type and block type
-gambling.pfaggregate = gambling.clean %>%
+subj.pfaggregate = gambling.clean %>%
   filter(!is.na(ResponseSwitch) & !is.na(PreviousFeedback)) %>% 
   group_by(HCPID, BlockType, PreviousFeedback) %>%
   dplyr::summarise(PSwitch = mean(ResponseSwitch, rm.na=T), RT = mean(RT, rm.na=T))
-
 
 ```
 
@@ -568,7 +567,7 @@ gambling.pfaggregate = gambling.clean %>%
 
 ```{r eval=FALSE}
 # test whether prop is calculate correctly
-gambling.cfaggregate %>% filter(HCPID==subjID)
+subj.cfaggregate %>% filter(HCPID==subjID)
 gambling.clean %>% filter(HCPID==subjID) %>%
   filter(!is.na(ResponseSwitch)) %>%
   group_by(BlockType, TrialType , ResponseSwitch) %>%
@@ -580,14 +579,13 @@ gambling.clean %>% filter(HCPID==subjID) %>%
 ```
 
 
-Visualize subject Pswitch pattern as a function of previous feedback
+Visualize subject Pswitch pattern as a function of current TrialType
 
 ```{r}
-subj.PSwitch.aggplot(gambling.cfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
-subj.PSwitch.pfaggplot(gambling.pfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
+subj.PSwitch.aggplot(subj.cfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
+subj.PSwitch.pfaggplot(subj.pfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
 
 ```
-
 
 # Calculate RMSE and Find Best Fit Parameter
 
@@ -667,8 +665,8 @@ find_best_parameter <- function(model, model.agg, sub.agg) {
   }
 }
 
-m1.bestp <- find_best_parameter("model1", model1.full.agg, gambling.cfaggregate)
-m2.bestp <- find_best_parameter("model2", model2.full.agg, gambling.cfaggregate)
+m1.bestp <- find_best_parameter("model1", model1.full.agg, subj.cfaggregate)
+m2.bestp <- find_best_parameter("model2", model2.full.agg, subj.cfaggregate)
 m1.bestp$model = "model1"
 m2.bestp$model = "model2"
 
@@ -696,6 +694,38 @@ Best parameter chosen for model1 :ans=`r m1.bestp[[1,'ans']]` :bll=`r m1.bestp[[
 Best parameter chosen for model2 is :egs=`r m2.bestp[[1,'egs']]` ; alpha=`r m2.bestp[[1,'alpha']]`, :r=`r m2.bestp[[1,'r']]`
 
 
+
+
+# Load optimal simulation
+
+Having the optimal parameter set, we can run simulation 800 times again by setting optimal parameter to the model.
+
+```{r}
+
+subj1 = "./no_seed/MODEL220210425_100307_fnca_best800.csv"
+subj2 = "./seed/MODEL220210425_100307_fnca_best800.csv"
+subjID = "100307_fnca"
+model2.best800 <- read.csv(subj1) %>%
+  mutate(CurrentResponse = case_when(Response=="j" ~ 3,
+                                     Response=="f" ~ 2),
+         RT = as.numeric(RT),
+         Epoch = as.numeric(Epoch)) 
+model2.best800.count <- clean_previous_future(count_responses(model2.best800))
+model2.best800.aggregate <- aggregate.ByEpoch.CurrentResponse.BlockType(model2.best800.count)
+
+
+ggarrange(m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==0), "Epoch"),
+m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==1), "Epoch"),
+m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==2), "Epoch"),
+m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==3), "Epoch"),
+m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==4), "Epoch"),
+m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==5), "Epoch"))
+
+m.PSwitch.aggplot(model2.best800.aggregate, "Epoch")
+```
+
+
+
 # Calculate Log-Likelihood
 
 
@@ -705,3 +735,35 @@ Best parameter chosen for model2 is :egs=`r m2.bestp[[1,'egs']]` ; alpha=`r m2.b
 
 
 
+
+
+```{r}
+model2.best800.aggregate <- model2.best800.aggregate %>%
+  group_by(BlockType, TrialType) %>%
+  dplyr::summarise(PSwitch.m = mean(PSwitch), PSwitch.sd = sd(PSwitch))
+
+subj1.aggregate <- subj.cfaggregate %>% filter(HCPID == subjID) %>% rename(PSwitch.subj = PSwitch)
+
+# bic 
+bic.ll <- function(k, n, logL) {
+  return(k * log(n) - 2 * logL)
+}
+#= n log(RSS/n) + (p + 1) log(n)
+bic.rmse <- function(k, n, rss) {
+  return(n * log(rss/n) - (k + 1) * log(n))
+}
+
+model2.best800.LL <- left_join(model2.best800.aggregate, subj1.aggregate) %>%
+  mutate(PSwitch.z = (PSwitch.m-PSwitch.subj)/(PSwitch.sd),
+         PSwitch.probz = dnorm(PSwitch.z), 
+         PSwitch.logprobz = log(PSwitch.probz)) %>%
+  group_by(HCPID) %>%
+  dplyr::summarise(PSwitch.LL = sum(PSwitch.logprobz), RMSE = rmse(PSwitch.m, PSwitch.subj), RSS = RMSE^2 * 6) 
+
+model2.best800.LL %>% mutate(BIC.LL = bic.ll(k=3, n=6, PSwitch.LL), BIC.rmse = bic.rmse(k=3, n=6, RSS)) %>%
+  xtable() %>%
+  kable(digits=4) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+  
+```
