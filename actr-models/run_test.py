@@ -113,18 +113,18 @@ def run_optimal_m2(HCPID, epoch=800):
 #################### Main ####################
 def main():
 	# exclude list
-	optimization_done = ["100307_fnca", "100408_fnca", "101006_fnca", "101107_fnca", "101309_fnca", "101410_fnca"]
-	optimization_done = optimization_done[0:2]
+	#optimization_done = ["100307_fnca", "100408_fnca", "101006_fnca", "101107_fnca", "101309_fnca", "101410_fnca"]
+	optimization_done = ["100307_fnca"]
 
 	# define HCPID
-	HCPIDs = HCPID_list()
+	HCPIDs = HCPID_list(optimization_done)
 	# run_optimization_m2(HCPIDs)
 
 	# given optimal parameter, re-run 800 simulation
 	for HCPID in HCPIDs:
 		#run_optimal_m2(HCPID=HCPID, epoch=800)
-		fit.grid_search_estimate_param(HCPID, "model1", 100)
-		fit.grid_search_estimate_param(HCPID, "model2", 100)
+		fit.grid_search_estimate_param(HCPID, "model1", 50)
+		fit.grid_search_estimate_param(HCPID, "model2", 50)
 		print(">> grid-search 100 done")
 
 if __name__ == "__main__":

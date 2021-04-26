@@ -228,7 +228,7 @@ def log_null_response(HCPID, param_set, model_output):
     fpath = "./model_output/param_gs_null_log.csv"
     pd.DataFrame([null_log]).to_csv(fpath, mode="a", header=not (os.path.exists(fpath)), index=False)
 
-def grid_search_estimate_param(HCPID, model, epoch=100):
+def grid_search_estimate_param(HCPID, model, epoch=50):
     """
     This function estimate parameter using GridSearch Method
     """
@@ -240,7 +240,7 @@ def grid_search_estimate_param(HCPID, model, epoch=100):
         param_set_list = list(ParameterGrid(param_grid)) #143
     elif model=="model2":
         egs = list(np.round(np.arange(0, 0.55, 0.05), 4))
-        alpha = list(np.round(np.arange(0.05, 0.7, 0.05), 4))
+        alpha = list(np.round(np.arange(0.05, 0.55, 0.05), 4))
         param_grid = {'egs': egs, 'alpha': alpha, 'r': [1]}
         param_set_list = list(ParameterGrid(param_grid)) #110
 
