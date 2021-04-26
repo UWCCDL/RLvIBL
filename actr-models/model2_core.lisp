@@ -19,7 +19,7 @@
 (define-model model2
 
 ;;; --------- PARAMETERS ---------
-(sgp ;:seed (200 4)               ; Fixed Randomness
+(sgp :seed (200 4)               ; Fixed Randomness
      :er t                      ; Enable randomness
      :esc t                     ; Subsymbolic computations
      :v nil                     ; verbose TRUE

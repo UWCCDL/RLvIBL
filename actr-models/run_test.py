@@ -1,10 +1,11 @@
 import run_fitting as fit
+import run_model as run
 import os
 import time
 import pandas as pd
 import glob
 
-
+#################### Optimization ####################
 def HCPID_list(exclude_list = None):
 	subj_paths = glob.glob("../bin/gambling_trials/*.csv")
 	HCPIDs = [sub.split("/")[-1].split(".")[0] for sub in subj_paths]
@@ -97,10 +98,37 @@ def run_optimization_m2(HCPIDs):
 		fpath = "./model_output/m2_param_optimization_log.csv"
 		df.to_csv(fpath, mode="a", header=not(os.path.exists(fpath)), index=False)
 
+#################### Re-Run Optimized Simulation ####################
+def run_optimal_m2(HCPID, epoch=800):
+	param_optimization_log = pd.read_csv("./model_output/param_optimization_log.csv", header=0)
+	param_array = param_optimization_log[param_optimization_log['HCPID']==HCPID]['model2_best_egs'].to_list() +\
+	param_optimization_log[param_optimization_log['HCPID']==HCPID]['model2_best_alpha'].to_list() +\
+	param_optimization_log[param_optimization_log['HCPID']==HCPID]['model2_best_r'].to_list()
+	param_set = dict(zip(['egs', 'alpha', 'r'], param_array))
+	model_output  = run.simulate(epoch=epoch, model="model2", param_set=param_set, export=True, verbose=False,
+				 file_suffix="_" + HCPID + "_best" + str(epoch), HCPID=HCPID)
+	return model_output
 
-optimization_done = ["100307_fnca", "100408_fnca", "101006_fnca", "101107_fnca", "101309_fnca", "101410_fnca"]
-HCPIDs = HCPID_list(optimization_done)
-run_optimization_m2(HCPIDs)
+
+#################### Main ####################
+def main():
+	# exclude list
+	optimization_done = ["100307_fnca", "100408_fnca", "101006_fnca", "101107_fnca", "101309_fnca", "101410_fnca"]
+	optimization_done = optimization_done[0:2]
+
+	# define HCPID
+	HCPIDs = HCPID_list()
+	# run_optimization_m2(HCPIDs)
+
+	# given optimal parameter, re-run 800 simulation
+	for HCPID in HCPIDs:
+		#run_optimal_m2(HCPID=HCPID, epoch=800)
+		fit.grid_search_estimate_param(HCPID, "model1", 100)
+		fit.grid_search_estimate_param(HCPID, "model2", 100)
+		print(">> grid-search 100 done")
+
+if __name__ == "__main__":
+    main()
 
 # estimate_param_model("102311_fnca", "model1")
 #>> [0.95508218 0.61949251 0.48553827] rmse = 0.24615907901410006
