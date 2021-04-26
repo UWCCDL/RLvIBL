@@ -114,19 +114,31 @@ def run_optimal_m2(HCPID, epoch=800):
 def main():
 	# exclude list
 	#optimization_done = ["100307_fnca", "100408_fnca", "101006_fnca", "101107_fnca", "101309_fnca", "101410_fnca"]
-	optimization_done = ["100307_fnca"]
+	m1_gsfiles = glob.glob("./model_output/MODEL1*_gs.csv")
+	m2_gsfiles = glob.glob("./model_output/MODEL2*_gs.csv")
+	m1_gsdone = [f.split('/')[-1].split('_')[1]+'_fnca' for f in m1_gsfiles]
+	m2_gsdone = []
+	#m2_optimization_done = ["100307_fnca", "101309_fnca", "100408_fnca", "101410_fnca", "101006_fnca", "101915_fnca", ""]
 
 	# define HCPID
-	HCPIDs = HCPID_list(optimization_done)
+	HCPIDs = HCPID_list()
+	m2HCPIDs = HCPID_list()
 	# run_optimization_m2(HCPIDs)
 
 	# given optimal parameter, re-run 800 simulation
 	for HCPID in HCPIDs:
 		#run_optimal_m2(HCPID=HCPID, epoch=800)
-		fit.grid_search_estimate_param(HCPID, "model1", 50)
-		fit.grid_search_estimate_param(HCPID, "model2", 50)
-		print(">> grid-search 100 done")
-
+		if HCPID not in m1_gsdone:
+			fit.grid_search_estimate_param(HCPID, "model1", 50)
+			print(">> MODEL1 grid-search 50 done", HCPID)
+		else:
+			print("MODEL1 skip", HCPID)
+		if HCPID not in m2_gsdone:
+			fit.grid_search_estimate_param(HCPID, "model2", 50)
+			print(">> MODEL2 grid-search 50 done", HCPID)
+		else:
+			print("MODEL1 skip", HCPID)
+		
 if __name__ == "__main__":
     main()
 
