@@ -82,6 +82,9 @@ model2.raw <- model2.raw %>%
 
 # Compute win-stay probabilities
 
+
+Win-stay probability(PSwitch) is calculated by: 1) count the number of ResponseSwitch grouped by BlockType and TrialType; 2) then calculate the proportion of ResponseSwitch (PSwitch) under groups. 
+
 ```{r}
 future_moves <- function(responses) {
   c(responses[2:length(responses)], NA)
@@ -190,6 +193,8 @@ aggregate.ByEpoch.PreviousFeedback.BlockType <- function(m.dat) {
 ```
 
 
+Plot functions
+
 ```{r}
 # plot subject aggregated data, PSwitch by TrialType x BlockType
 subj.PSwitch.aggplot <- function(subj.dat, subjID) {
@@ -222,8 +227,6 @@ m.PSwitch.aggplot <- function(m.dat, byParam) {
       ylim(0,1) +
       stat_summary(fun.data = "mean_cl_boot", col="black") +
       theme_pander()
-  } else {
-    print("Choose one: ParamID or Epoch")
   }
   return (res)
 }
@@ -247,9 +250,7 @@ m.RT.aggplot <- function(m.dat, byParam) {
       ylim(0,3500) +
       stat_summary(fun.data = "mean_cl_boot", col="black") +
       theme_pander()
-  } else {
-    print("Choose one: ParamID or Epoch")
-  }
+  } 
   return (res)
 }
 
@@ -260,7 +261,6 @@ m.RT.aggplot <- function(m.dat, byParam) {
 ```
 
 
-Let's look at the PSwitch and RT as a function of Current TrialType
 
 ```{r}
 model1.count <- clean_previous_future(count_responses(model1.raw))
@@ -270,6 +270,9 @@ model2.count <- clean_previous_future(count_responses(model2.raw))
 model1.aggregate <- m1.aggregate.ByParam.CurrentResponse.BlockType(model1.count)
 model2.aggregate <- m2.aggregate.ByParam.CurrentResponse.BlockType(model2.count)
 ```
+
+
+The following plots show the mean PSwitch and mean RT as a function of TrialType, BlockType. Each blue line represents a parameter set.
 
 
 ```{r}
@@ -367,7 +370,9 @@ m.RT.pfaggplot <- function(m.dat, byParam) {
 ```
 
 
-Let's visualize it 
+The following plots show the mean PSwitch and mean RT as a function of PreviousFeedback, BlockType. Each blue line represents a parameter set.
+
+
 ```{r}
 m.PSwitch.pfaggplot(model1.pf_aggregate, "ParamID") + ggtitle("MODEL1")
 m.PSwitch.pfaggplot(model2.pf_aggregate, "ParamID") + ggtitle("MODEL2")
@@ -541,9 +546,6 @@ gambling.pfagg <- left_join(gambling.pfagg %>% select(-RT) %>%
 #write_csv(gambling.pfagg, "../../bin/gambling_pfagg.csv")
 ```
 
-Load clean data and select one subj data
-
-Note: here, ResponseSwitch is 1 if: CurrentResponse != FutureResponse; is 0 if CurrentResponse==FutureResponse
 
 ```{r}
 gambling.clean <- read_csv("../../bin/gambling_clean_data.csv") %>% mutate(BlockType=BlockTypeCoded)
@@ -563,6 +565,9 @@ subj.pfaggregate = gambling.clean %>%
 
 ```
 
+Load cleaned subject data and select one subj data = `r subjID`
+Note: here, ResponseSwitch is 1 if: CurrentResponse != FutureResponse; is 0 if CurrentResponse==FutureResponse
+
 
 
 ```{r eval=FALSE}
@@ -579,12 +584,11 @@ gambling.clean %>% filter(HCPID==subjID) %>%
 ```
 
 
-Visualize subject Pswitch pattern as a function of current TrialType
+The following plots show subject Pswitch pattern as a function of current TrialType and BlockType.
 
 ```{r}
 subj.PSwitch.aggplot(subj.cfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
 subj.PSwitch.pfaggplot(subj.pfaggregate, subjID) + ggtitle(paste("SUB", subjID, sep = "-"))
-
 ```
 
 # Calculate RMSE and Find Best Fit Parameter
@@ -595,8 +599,6 @@ Note: This is not grid-search parameter fitting. The parameter space was chosen 
 by adding null_penalty (count of null responses)
 
 ```{r}
-dim(model1.raw)
-
 model1.full.count <- clean_previous_future(count_responses(model1.raw))
 
 model1.full.agg <- model1.full.count %>% 
@@ -604,9 +606,9 @@ model1.full.agg <- model1.full.count %>%
   group_by(ans, bll, lf, BlockType, TrialType) %>%
   dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
 
-model1.full.agg %>% gghistogram(x="ans", binwidth = .05)
-model1.full.agg %>% gghistogram(x="bll", binwidth = .05)
-model1.full.agg %>% gghistogram(x="lf", binwidth = .05)
+model1.full.agg %>% gghistogram(x="ans", binwidth = .05) + ggtitle("MODEL1: :ans distrirbutioin")
+model1.full.agg %>% gghistogram(x="bll", binwidth = .05) + ggtitle("MODEL1: :bll distrirbutioin")
+model1.full.agg %>% gghistogram(x="lf", binwidth = .05) + ggtitle("MODEL1: :lf distrirbutioin")
 
 ```
 
@@ -624,15 +626,14 @@ model2.full.agg <- model2.full.count %>%
   group_by(egs, alpha, r, BlockType, TrialType) %>%
   dplyr::summarise(PSwitch = mean(ResponseSwitch), RT = mean(RT))
 
-model2.full.agg %>% gghistogram(x="egs", binwidth = .05)
-model2.full.agg %>% gghistogram(x="alpha", binwidth = .05)
-model2.full.agg %>% gghistogram(x="r", binwidth = .05)
+model2.full.agg %>% gghistogram(x="egs", binwidth = .05) + ggtitle("MODEL1: :egs distrirbutioin")
+model2.full.agg %>% gghistogram(x="alpha", binwidth = .05) + ggtitle("MODEL1: :alpha distrirbutioin")
+model2.full.agg %>% gghistogram(x="r", binwidth = .05) + ggtitle("MODEL1: :r distrirbutioin")
 
 ```
 
 
 Next, we calalculate RMSE for each parameter combination, find the best parameter with min RMSE
-
 
 ```{r}
 find_best_parameter <- function(model, model.agg, sub.agg) {
@@ -682,7 +683,6 @@ m2.bestp <- m2.bestp[order(m2.bestp$RMSE),]
 m1.bestp %>% head() %>% xtable() %>% kable(digits=4) %>% kable_styling(bootstrap_options = c("striped", "hover"))
 m2.bestp %>% head() %>% xtable() %>% kable(digits=4) %>% kable_styling(bootstrap_options = c("striped", "hover"))
 
-m1.bestp[[1,'ans']]
 ```
 
 
@@ -695,16 +695,14 @@ Best parameter chosen for model2 is :egs=`r m2.bestp[[1,'egs']]` ; alpha=`r m2.b
 
 
 
-
 # Load optimal simulation
 
 Having the optimal parameter set, we can run simulation 800 times again by setting optimal parameter to the model.
+The plot shows the pattern of 800 simulation runs (Note: only single parameter set was loaded here)
 
 ```{r}
-
-subj1 = "./no_seed/MODEL220210425_100307_fnca_best800.csv"
+subj1 = "./MODEL220210425_100307_fnca_best800.csv"
 subj2 = "./seed/MODEL220210425_100307_fnca_best800.csv"
-subjID = "100307_fnca"
 model2.best800 <- read.csv(subj1) %>%
   mutate(CurrentResponse = case_when(Response=="j" ~ 3,
                                      Response=="f" ~ 2),
@@ -713,18 +711,57 @@ model2.best800 <- read.csv(subj1) %>%
 model2.best800.count <- clean_previous_future(count_responses(model2.best800))
 model2.best800.aggregate <- aggregate.ByEpoch.CurrentResponse.BlockType(model2.best800.count)
 
+m.PSwitch.aggplot(model2.best800.aggregate, "Epoch") + ggtitle("MODEL2: optimal parameter 800 runs", 
+                                                               subtitle = paste("SUB", subjID, sep="-"))
 
 ggarrange(m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==0), "Epoch"),
 m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==1), "Epoch"),
 m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==2), "Epoch"),
 m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==3), "Epoch"),
 m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==4), "Epoch"),
-m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==5), "Epoch"))
-
-m.PSwitch.aggplot(model2.best800.aggregate, "Epoch")
+m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==5), "Epoch")) 
 ```
 
+# Grid Search Examination
 
+Next, the following plots show the effect of random parameter (:ANS and :EGS) on model behaviors. 
+
+```{r}
+m1.gsfiles = list.files(path = ".", pattern = paste(paste("^MODEL1.*", subjID, sep=""), "*_gs.csv$", sep=""), full.names = T)
+m2.gsfiles = list.files(path = ".", pattern = paste(paste("^MODEL2.*", subjID, sep=""), "*_gs.csv$", sep=""), full.names = T)
+
+m1.gs <- read.csv(m1.gsfiles[1]) %>% 
+  mutate(CurrentResponse = case_when(Response=="j" ~ 3,
+                                     Response=="f" ~ 2), RT = as.numeric(RT), 
+                                     Epoch = as.numeric(Epoch)) 
+m2.gs <- read.csv(m2.gsfiles[1]) %>% 
+  mutate(CurrentResponse = case_when(Response=="j" ~ 3,
+                                     Response=="f" ~ 2), RT = as.numeric(RT), 
+                                     Epoch = as.numeric(Epoch)) 
+m1.gs <- m1.aggregate.ByParam.CurrentResponse.BlockType(clean_previous_future(count_responses(m1.gs))) %>%
+  mutate(ans = as.factor(ans), ParamID = as.factor(ParamID))
+m2.gs <- m2.aggregate.ByParam.CurrentResponse.BlockType(clean_previous_future(count_responses(m2.gs))) %>%
+  mutate(egs = as.factor(egs), ParamID = as.factor(ParamID))
+
+
+ggplot(m1.gs, aes(x = TrialType, y = PSwitch, col = ans)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = ans), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      ylim(0,1) +
+      stat_summary(fun.data = "mean_cl_boot", col="black") +
+      theme_pander() +
+  ggtitle("MODEL1: :ans effect", subtitle = paste("sub", subjID, sep="-"))
+
+ggplot(m2.gs, aes(x = TrialType, y = PSwitch, col = egs)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = egs), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      ylim(0,1) +
+      stat_summary(fun.data = "mean_cl_boot", col="black") +
+      theme_pander() +
+  ggtitle("MODEL2: :egs effect", subtitle = paste("sub", subjID, sep="-"))
+```
 
 # Calculate Log-Likelihood
 
@@ -736,6 +773,9 @@ m.PSwitch.aggplot(model2.best800.aggregate, "Epoch")
 
 
 
+
+The following analysis is to calculate the Log-Likelihood of P(m|x) given human data; the RMSE of model data and human data;
+The BIC scores calculated from both RSS and LL.
 
 ```{r}
 model2.best800.aggregate <- model2.best800.aggregate %>%
@@ -753,12 +793,14 @@ bic.rmse <- function(k, n, rss) {
   return(n * log(rss/n) - (k + 1) * log(n))
 }
 
+# calculate log-liklihood
 model2.best800.LL <- left_join(model2.best800.aggregate, subj1.aggregate) %>%
   mutate(PSwitch.z = (PSwitch.m-PSwitch.subj)/(PSwitch.sd),
          PSwitch.probz = dnorm(PSwitch.z), 
          PSwitch.logprobz = log(PSwitch.probz)) %>%
   group_by(HCPID) %>%
   dplyr::summarise(PSwitch.LL = sum(PSwitch.logprobz), RMSE = rmse(PSwitch.m, PSwitch.subj), RSS = RMSE^2 * 6) 
+
 
 model2.best800.LL %>% mutate(BIC.LL = bic.ll(k=3, n=6, PSwitch.LL), BIC.rmse = bic.rmse(k=3, n=6, RSS)) %>%
   xtable() %>%
