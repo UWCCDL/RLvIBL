@@ -98,9 +98,6 @@ def run_optimization_m2(HCPIDs):
 		fpath = "./model_output/m2_param_optimization_log.csv"
 		df.to_csv(fpath, mode="a", header=not(os.path.exists(fpath)), index=False)
 
-
-
-
 #################### Re-Run Optimized Simulation ####################
 def run_optimal_m2(HCPID, epoch=800):
 	param_optimization_log = pd.read_csv("./model_output/param_optimization_log.csv", header=0)
@@ -113,22 +110,22 @@ def run_optimal_m2(HCPID, epoch=800):
 	return model_output
 
 
-
 #################### Main ####################
 def main():
 	# exclude list
 	optimization_done = ["100307_fnca", "100408_fnca", "101006_fnca", "101107_fnca", "101309_fnca", "101410_fnca"]
+	optimization_done = optimization_done[0:2]
 
 	# define HCPID
-	HCPIDs = HCPID_list(exclude_list=optimization_done)
+	HCPIDs = HCPID_list()
 	# run_optimization_m2(HCPIDs)
 
 	# given optimal parameter, re-run 800 simulation
-	for HCPID in optimization_done:
+	for HCPID in HCPIDs:
 		#run_optimal_m2(HCPID=HCPID, epoch=800)
-		fit.grid_seach_estimate_param(HCPID, "model1")
-		fit.grid_seach_estimate_param(HCPID, "model2")
-		print(">> re-run best 800 simulation done")
+		fit.grid_search_estimate_param(HCPID, "model1", 100)
+		fit.grid_search_estimate_param(HCPID, "model2", 100)
+		print(">> grid-search 100 done")
 
 if __name__ == "__main__":
     main()

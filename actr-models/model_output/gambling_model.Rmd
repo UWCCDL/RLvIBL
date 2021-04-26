@@ -727,8 +727,10 @@ m.PSwitch.aggplot(model2.best800.aggregate %>% filter(Epoch==5), "Epoch"))
 Next, the following plots show the effect of random parameter (:ANS and :EGS) on model behaviors. 
 
 ```{r}
-m1.gsfiles = list.files(path = ".", pattern = paste(paste("^MODEL1.*", subjID, sep=""), "*_gs.csv$", sep=""), full.names = T)
-m2.gsfiles = list.files(path = ".", pattern = paste(paste("^MODEL2.*", subjID, sep=""), "*_gs.csv$", sep=""), full.names = T)
+m1.gsfiles = list.files(path = "./gs_check", 
+                        pattern = paste(paste("^MODEL1.*", subjID, sep=""), "*_gs.csv$", sep=""), full.names = T)
+m2.gsfiles = list.files(path = "./gs_check", 
+                        pattern = paste(paste("^MODEL2.*", subjID, sep=""), "*_gs.csv$", sep=""), full.names = T)
 
 m1.gs <- read.csv(m1.gsfiles[1]) %>% 
   mutate(CurrentResponse = case_when(Response=="j" ~ 3,

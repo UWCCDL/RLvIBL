@@ -194,7 +194,7 @@ def model_target_func(param_array, HCPID, model):
 #     print(">>", param_set, "rmse =",rmse)
 #     return rmse
 
-def estimate_param(HCPID, model):
+def optimize_param(HCPID, model):
     """
     This func estimates the optimal parameter set for specific subj
     :param HCPID: Subj ID
@@ -210,17 +210,47 @@ def estimate_param(HCPID, model):
                                           "return_all": True})
     return minmum
 
+def log_null_response(HCPID, param_set, model_output):
+    """
+        This function log null responses when estimate parameter using Grid Search
+        """
+    null_log = {"date": np.nan, "HCPID": np.nan,
+                'egs': np.nan, 'alpha': np.nan, 'r':np.nan,
+                'ans': np.nan, 'bll': np.nan, 'lf': np.nan,
+                'null_responses': np.nan}
+    # export null response
+    num_null = count_null_response(model_output)
 
-def grid_seach_estimate_param(HCPID, model):
+    null_log.update(param_set)
+    null_log['HCPID'] = HCPID
+    null_log['date'] = pd.to_datetime("today").strftime("%y-%m-%d")
+    null_log['null_responses'] = num_null
+    fpath = "./model_output/param_gs_null_log.csv"
+    pd.DataFrame([null_log]).to_csv(fpath, mode="a", header=not (os.path.exists(fpath)), index=False)
+
+def grid_search_estimate_param(HCPID, model, epoch=100):
+    """
+    This function estimate parameter using GridSearch Method
+    """
     param_set_list = []
     if model=="model1":
-        param_set_list = [{"ans": 0.05, "bll": 0.5, "lf": 0.5}, {"ans": 0.1, "bll": 0.5, "lf": 0.5}, {"ans": 0.5, "bll": 0.5, "lf": 0.5}]     
+        ans = ['nil'] + list(np.round(np.arange(0.05, 0.55, 0.05), 4))
+        bll = list(np.round(np.arange(0.2, 0.85, 0.05), 4))
+        param_grid = {'ans': ans, 'bll': bll, 'lf': [0.1]}
+        param_set_list = list(ParameterGrid(param_grid)) #143
     elif model=="model2":
-        param_set_list = [{"egs": 0.05, "alpha": 0.2, "r": 1}, {"egs": 0.1, "alpha": 0.2, "r": 1}, {"egs": 0.5, "alpha": 0.2, "r": 1}] 
+        egs = list(np.round(np.arange(0, 0.55, 0.05), 4))
+        alpha = list(np.round(np.arange(0.05, 0.7, 0.05), 4))
+        param_grid = {'egs': egs, 'alpha': alpha, 'r': [1]}
+        param_set_list = list(ParameterGrid(param_grid)) #110
 
+    # simulate
     for param_set in param_set_list:
-        model_output = run.simulate(epoch=100, model=model, param_set=param_set, 
+        model_output = run.simulate(epoch=epoch, model=model, param_set=param_set,
             export=True, verbose=False, file_suffix="_" + HCPID + "_gs", HCPID=HCPID)
+
+        # log null responses
+        log_null_response(HCPID, param_set, pd.concat(model_output))
 
 # def estimate_param_model2(HCPID):
 #     init = [.1, .1, .1]  #:egs       :alpha        :r
