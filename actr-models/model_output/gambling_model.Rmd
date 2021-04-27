@@ -23,7 +23,6 @@ library(plyr)
 library(ggthemes)
 library(ggplot2)
 library(ggsci)
-library(tidyverse)
 library(xtable)
 library(kableExtra)
 library(pracma)  # imports Mode function
@@ -31,7 +30,6 @@ library(rstatix)
 library(tidyverse) # handy utility functions
 library(dplyr)
 library(ggpubr)
-library(tidyverse)
 library(ggpubr)
 library(rstatix)
 library(lme4)
@@ -765,6 +763,74 @@ ggplot(m2.gs, aes(x = TrialType, y = PSwitch, col = egs)) +
   ggtitle("MODEL2: :egs effect", subtitle = paste("sub", subjID, sep="-"))
 ```
 
+
+```{r}
+m2.1000check <- read.csv("./gs_check/MODEL220210426_100307_fnca_1000check.csv") %>%
+  mutate(CurrentResponse = case_when(Response=="j" ~ 3,
+                                     Response=="f" ~ 2), RT = as.numeric(RT), 
+                                     Epoch = as.numeric(Epoch))
+
+m2.1000check.aggregate <- clean_previous_future(count_responses(m2.1000check)) %>%
+    filter(!is.na(ResponseSwitch) & !is.na(CurrentResponse)) %>%
+    group_by(Epoch, egs, alpha, r, BlockType, TrialType) %>%
+    dplyr::summarise(PSwitch = mean(ResponseSwitch)) %>%
+    ungroup() %>%
+    mutate(ParamID = group_indices(., egs, alpha, r)) %>%
+    group_by(ParamID, egs, alpha, r, BlockType, TrialType) %>%
+    dplyr::summarise(PSwitch.mean = mean(PSwitch), PSwitch.sd = sd(PSwitch)) %>%
+    mutate(alpha=as.factor(alpha))
+
+ggplot(m2.1000check.aggregate, aes(x = TrialType, y = PSwitch.mean, col = alpha)) +
+      facet_grid( ~ BlockType) +
+      geom_line(aes(group = alpha), alpha=.5) + 
+      geom_point(alpha=.5, size=3) +
+      geom_errorbar(aes(ymin=PSwitch.mean-PSwitch.sd, ymax=PSwitch.mean+PSwitch.sd), width=.1, position = position_dodge(0.05))+
+      #ylim(0,1) +
+      theme_pander()
+
+m2.1000check.aggregate
+```
+
+
+### Grid Search
+
+We run the grid search simulation for every single subject 
+the parameter grid 
+
+```{r}
+m1.gsfiles = list.files(path = ".", 
+                        pattern = paste(paste("^MODEL1.*", subjID, sep=""), "*_gs.csv$", sep=""), full.names = T)
+
+m2.gsfiles = list.files(path = "./gs_check", 
+                        pattern = paste(paste("^MODEL2.*", subjID, sep=""), "*_gs.csv$", sep=""), full.names = T)
+
+m1.gs <- read.csv(m1.gsfiles) %>% 
+  mutate(CurrentResponse = case_when(Response=="j" ~ 3,
+                                     Response=="f" ~ 2), RT = as.numeric(RT), 
+                                     Epoch = as.numeric(Epoch),
+         ans = replace_na(ans, 'nil')) 
+
+m2.gs <- read.csv(m2.gsfiles) %>% 
+  mutate(CurrentResponse = case_when(Response=="j" ~ 3,
+                                     Response=="f" ~ 2), RT = as.numeric(RT), 
+                                     Epoch = as.numeric(Epoch)) 
+
+m1.gs <- m1.aggregate.ByParam.CurrentResponse.BlockType(clean_previous_future(count_responses(m1.gs))) %>%
+  mutate(ans = as.factor(ans), ParamID = as.factor(ParamID))
+m2.gs <- m2.aggregate.ByParam.CurrentResponse.BlockType(clean_previous_future(count_responses(m2.gs))) %>%
+  mutate(egs = as.factor(egs), ParamID = as.factor(ParamID))
+
+
+find_best_parameter("model1", m1.gs, subj.cfaggregate %>% filter(HCPID==subjID)) %>% slice_min(RMSE, n = 1)
+find_best_parameter("model2", m2.gs, subj.cfaggregate %>% filter(HCPID==subjID)) %>% slice_min(RMSE, n = 1)
+
+m1.gs
+subj.cfaggregate %>% filter(HCPID==subjID) %>%
+  pivot_wider(id_cols = "HCPID", names_from = "")
+```
+
+
+
 # Calculate Log-Likelihood
 
 
@@ -802,7 +868,6 @@ model2.best800.LL <- left_join(model2.best800.aggregate, subj1.aggregate) %>%
          PSwitch.logprobz = log(PSwitch.probz)) %>%
   group_by(HCPID) %>%
   dplyr::summarise(PSwitch.LL = sum(PSwitch.logprobz), RMSE = rmse(PSwitch.m, PSwitch.subj), RSS = RMSE^2 * 6) 
-
 
 model2.best800.LL %>% mutate(BIC.LL = bic.ll(k=3, n=6, PSwitch.LL), BIC.rmse = bic.rmse(k=3, n=6, RSS)) %>%
   xtable() %>%
