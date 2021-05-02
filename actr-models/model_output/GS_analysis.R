@@ -3,18 +3,15 @@ rm(list = ls())
 
 # load func
 load("./func.RData")
+setwd("~/Documents/GitProject/RLvIBL/actr-models/model_output")
 
 load.mdat <- function(model, subjID) {
-  if (model=="model1") {
-    m1.gsfiles = list.files(path = ".", pattern = paste(paste("^MODEL1.*", subjID, sep=""), "*_gs.csv$", sep=""), full.names = T)
-    res <- read.csv(m1.gsfiles) %>% 
-      mutate(CurrentResponse = case_when(Response=="j" ~ 3, Response=="f" ~ 2), RT = as.numeric(RT), Epoch = as.numeric(Epoch),
-             ans = replace_na(ans, 'nil')) 
-  } else{
-    m2.gsfiles = list.files(path = ".", pattern = paste(paste("^MODEL2.*", subjID, sep=""), "*_gs.csv$", sep=""), full.names = T)
-    res <- read.csv(m2.gsfiles) %>% 
-      mutate(CurrentResponse = case_when(Response=="j" ~ 3, Response=="f" ~ 2), RT = as.numeric(RT),  Epoch = as.numeric(Epoch)) 
+  m.gsfiles = list.files(path = ".", pattern = paste("^", str_to_upper(model), ".*",subjID, "*_gs.csv$", sep = ""), full.names = T)
+  res  <- data.frame()
+  for (f in m.gsfiles) {
+    res <- res %>% rbind(read.csv(f))
   }
+  res <- res %>% mutate(CurrentResponse = case_when(Response=="j" ~ 3, Response=="f" ~ 2), RT = as.numeric(RT),  Epoch = as.numeric(Epoch)) 
   return(res)
 }
 
@@ -110,7 +107,7 @@ runLL <- function() {
     HCPIDs <- anti_join(HCPIDs, missing.IDs)
   }
   
-  #HCPIDs <- c('100307_fnca')
+  #HCPIDs <- c('127630_fnca')
   df.LL <- data.frame()
   for (subjID in HCPIDs$HCPID) {
     m1.dat = load.mdat("model1", subjID)
@@ -123,14 +120,14 @@ runLL <- function() {
 }
 
 ll.append <- function(new.LL) {
-  old.LL <- read.csv('./MODELLogLikelihood.csv')
+  old.LL <- read.csv('./MODELLogLikelihood.csv', row.names = 1)
   update.LL <- old.LL %>% rbind(new.LL)
   return(update.LL)
 }
 
 df.LL <- runLL()
-updated.LL <- ll.append(df.LL) 
-write.csv(updated.LL, './MODELLogLikelihood.csv')
+update.LL <- ll.append(df.LL) 
+write.csv(update.LL, './MODELLogLikelihood.csv')
 
 
 

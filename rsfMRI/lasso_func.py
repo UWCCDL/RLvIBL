@@ -365,7 +365,7 @@ def plot_prediction(subj_wide, test_data, features, DV, best_lasso):
     plt.ylabel(DV)
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
 
-def plot_prediction_loo(all_ytrue, all_yprob, threshold):
+def plot_prediction_loo(all_ytrue, all_yhat, all_yprob, threshold):
     threshold = 0.5
     all_ytrue2 = [i[0] for i in all_ytrue]
     all_yhat2 = [i[0] for i in all_yhat]
