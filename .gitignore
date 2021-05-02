@@ -10,12 +10,18 @@ actr-models/.idea/workspace.xml
 actr-models/model_output/old
 actr-models/model_output/gs_check
 actr-models/model_output/seed
+bin/ROI_pwer264
 temp/
 rsfmri/.idea
 rsfmri/__pycache__
 rsfmri/.ipynb_checkpoints/
 rsfmri/*sub
 rsfmri/old
+rsfmri/REST_corr
+rsfmri/timeseries
+
+
+
 
 
 
