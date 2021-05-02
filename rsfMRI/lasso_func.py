@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
-from sklearn.metrics import roc_curve, roc_auc_score, accuracy_score
+from sklearn.metrics import roc_curve, auc, roc_auc_score, accuracy_score
 from sklearn.metrics import plot_confusion_matrix, confusion_matrix
 from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import LogisticRegression
@@ -104,6 +104,7 @@ def vectorize_mat_name(row_name_list, col_name_list):
             vec.append(json.dumps([r, c]))
     return np.array(vec)
 
+
 ############### COI ###############
 def censor(vec_df, COI):
     """
@@ -145,6 +146,12 @@ def get_subj_df(subj_wide, censor):
     :return: a subject df
     """
     res = subj_wide[['HCPID', 'best_model1'] + censor['connID'].to_list()].dropna(how='any')
+    return res
+
+def reverse_connID(connID):
+    roi1, roi2 = json.loads(connID)
+    newconnID = [roi2, roi1]
+    res = json.dumps(newconnID)
     return res
 
 ############### LOGISTIC MODEL ###############
@@ -225,11 +232,43 @@ def loocv_train_test_split_ith(subj_dat, i):
     assert i < len(subj_dat)
 
     cv = LeaveOneOut()
+    
     index_list = list(cv.split(subj_dat))
     train_index, test_index = index_list[i][0], index_list[i][1]
     train_data = subj_dat.iloc[train_index]
     test_data = subj_dat.iloc[test_index]
     return train_data, test_data
+
+def loocv_logistic_model(subj_censored, features, DV, best_c):
+    start = time.time()
+    cv = LeaveOneOut()
+    num_cv = cv.get_n_splits(subj_censored)
+
+    all_ytrue = []
+    all_yhat = []
+    all_yprob = []
+
+    for i in range(num_cv):
+        # define train, test data
+        train_data, test_data = loocv_train_test_split_ith(subj_censored, i)
+
+        # define model
+        best_lasso_model = LogisticRegression(penalty='l1', solver='saga', C=best_c, fit_intercept=False)
+
+        # fit model 
+        best_lasso_model.fit(train_data[features], train_data[DV])
+        
+        # predict prob
+        yhat = best_lasso_model.predict(test_data[features])
+        yprob = best_lasso_model.predict_proba(test_data[features])[:, 1]
+
+        # append pred outcomes
+        all_ytrue.append(test_data[DV].values)
+        all_yhat.append(yhat)
+        all_yprob.append(yprob)
+
+    print('Time Usage (s)', round((time.time() - start), 4))
+    return all_ytrue, all_yhat, all_yprob
 
 ############### VISUALIE LOG MODEL ###############
 def print_coefficients(coef, features):
@@ -240,7 +279,7 @@ def print_coefficients(coef, features):
     feats = list(zip(features, coef))
     print(*feats, sep="\n")
 
-def plot_ROC_curve(logistic_model, test_data, features, DV):
+def plot_roc_curve(logistic_model, test_data, features, DV):
     y_score = logistic_model.predict_proba(test_data[features])[:, 1]
     false_positive_rate, true_positive_rate, threshold = roc_curve(test_data[DV], y_score)
     print('ROC Accuracy Score for Logistic Regression: ', roc_auc_score(test_data[DV], y_score))
@@ -254,6 +293,19 @@ def plot_ROC_curve(logistic_model, test_data, features, DV):
     plt.xlabel('Specifity: PPR')
     plt.show()
 
+def plot_roc_curve_loo(all_ytrue, all_yprobs):
+    false_positive_rate, true_positive_rate, _ = roc_curve(all_ytrue, all_yprobs)
+    plt.subplots(1, figsize=(5, 5))
+    plt.title('ROC - Logistic regression')
+    roc_auc = auc(false_positive_rate, true_positive_rate)
+    plt.plot(false_positive_rate, true_positive_rate, lw=2, alpha=0.5, label='LOOCV ROC (AUC = %0.2f)' % (roc_auc))
+    plt.plot([0, 1], ls="--")
+    plt.plot([0, 0], [1, 0], c=".7"), plt.plot([1, 1], c=".7")
+    plt.ylabel('Sensitivity: TPR')
+    plt.xlabel('Specifity: PPR')
+    plt.legend(loc="lower right")
+    plt.show()
+    
 def plot_confusion_matrix(logistic_model, test_data, features, DV):
     """
     Plots a confusion matrix using the values
@@ -265,6 +317,13 @@ def plot_confusion_matrix(logistic_model, test_data, features, DV):
     y_pred = logistic_model.predict(test_data[features])
     tn, fp, fn, tp = confusion_matrix(test_data[DV], y_pred).ravel()
     data = np.matrix([[tp, fp], [fn, tn]])
+    sns.heatmap(data, annot=True, xticklabels=['Actual Pos', 'Actual Neg'], yticklabels=['Pred. Pos', 'Pred. Neg'])
+    plt.show()
+
+def plot_confusion_matrix_loo(all_ytrue, all_yhat, norm=None):
+    tn, fp, fn, tp = confusion_matrix(all_ytrue, all_yhat, normalize = norm).ravel()
+    data = np.matrix([[tp, fp], [fn, tn]])
+    plt.title('Accuracy Score: {:.4f}'.format(accuracy_score(all_ytrue, all_yhat)))
     sns.heatmap(data, annot=True, xticklabels=['Actual Pos', 'Actual Neg'], yticklabels=['Pred. Pos', 'Pred. Neg'])
     plt.show()
 
@@ -306,4 +365,21 @@ def plot_prediction(subj_wide, test_data, features, DV, best_lasso):
     plt.ylabel(DV)
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
 
+def plot_prediction_loo(all_ytrue, all_yprob, threshold):
+    threshold = 0.5
+    all_ytrue2 = [i[0] for i in all_ytrue]
+    all_yhat2 = [i[0] for i in all_yhat]
+    all_yprob2 = [i[0] for i in all_yprob]
+    pred_data2 = pd.DataFrame({'y_true':all_ytrue2, 'y_prob':all_yprob2, 'y_hat':all_yhat2}, dtype='float').rename_axis(columns='index').reset_index()
+    pred_data2['pred_corr'] = pred_data2['y_true'] == pred_data2['y_hat']
 
+    sns.scatterplot(data=pred_data2, x='index', y="y_true")
+    fig = sns.scatterplot(data=pred_data2, x='index', y="y_prob", hue = 'pred_corr', marker = 'x')
+    plt.axhline(y=threshold, color='black', linestyle='-.', label='threshold')
+
+    plt.xlabel('subj')
+    plt.ylabel('prediction')
+
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+
+    plt.show()

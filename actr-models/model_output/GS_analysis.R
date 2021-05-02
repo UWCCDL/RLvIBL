@@ -74,13 +74,45 @@ calc.mLL <- function(subjID, subj.dat, m1.dat, m2.dat){
   return(m.logL)
 }
 
+load.HCPID <- function(model){
+  if (model=='model1') {
+    m1.gsfiles = list.files(path = ".", pattern = "^MODEL1.*_gs.csv$", full.names = F)
+    res = c()
+    for (f in m1.gsfiles) {
+      res <- c(paste(str_split_fixed(f, '_', 3)[2], 'fnca', sep = '_'), res)
+    }
+  } else {
+    m2.gsfiles = list.files(path = ".", pattern = "^MODEL2.*_gs.csv$", full.names = F)
+    res = c()
+    for (f in m2.gsfiles) {
+      res <- c(paste(str_split_fixed(f, '_', 3)[2], 'fnca', sep = '_'), res)
+    }
+  }
+  return(res)
+}
+
+
 runLL <- function() {
   #subjID <- '100307_fnca'
   #subjID <- '100408_fnca'
+  m1.HCPIDs = load.HCPID('model1')
+  m2.HCPIDs = load.HCPID('model2')
+  HCPIDs = m1.HCPIDs
+  if (all(m1.HCPIDs==m2.HCPIDs)) {
+    done.IDs = read.csv('./MODELLogLikelihood.csv') %>% select(HCPID)
+    HCPIDs <- anti_join(data.frame(HCPID = m1.HCPIDs), done.IDs)
+  } else{
+    missing.IDs <- anti_join(data.frame(HCPID = m1.HCPIDs), data.frame(HCPID = m2.HCPIDs))
+    print("Missing some gs files")
+    print(missing.IDs)
+    done.IDs = read.csv('./MODELLogLikelihood.csv') %>% select(HCPID)
+    HCPIDs <- anti_join(data.frame(HCPID = m1.HCPIDs), done.IDs)
+    HCPIDs <- anti_join(HCPIDs, missing.IDs)
+  }
   
-  HCPIDs <- c('100307_fnca')
+  #HCPIDs <- c('100307_fnca')
   df.LL <- data.frame()
-  for (subjID in HCPIDs) {
+  for (subjID in HCPIDs$HCPID) {
     m1.dat = load.mdat("model1", subjID)
     m2.dat = load.mdat("model2", subjID)
     subj.dat = load.sdat(subjID)
@@ -90,7 +122,20 @@ runLL <- function() {
   return (df.LL)
 }
 
+ll.append <- function(new.LL) {
+  old.LL <- read.csv('./MODELLogLikelihood.csv')
+  update.LL <- old.LL %>% rbind(new.LL)
+  return(update.LL)
+}
+
 df.LL <- runLL()
+updated.LL <- ll.append(df.LL) 
+write.csv(updated.LL, './MODELLogLikelihood.csv')
+
+
+
+
+
 # # visualize m1.agg
 # ggplot(m1.agg, aes(x = TrialType, y = PSwitch.mean, col = ParamID)) +
 #   facet_grid( ~ BlockType) +
