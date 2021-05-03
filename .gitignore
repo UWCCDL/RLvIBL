@@ -19,6 +19,8 @@ rsfmri/*sub
 rsfmri/old
 rsfmri/REST_corr
 rsfmri/timeseries
+*sub/
+bin/
 
 
 
