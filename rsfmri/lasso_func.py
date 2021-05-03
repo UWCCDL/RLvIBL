@@ -20,21 +20,26 @@ from sklearn.linear_model import RidgeCV
 from sklearn.linear_model import lasso_path, enet_path
 from sklearn.svm import l1_min_c
 from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import LeaveOneOut
 from sklearn.model_selection import KFold, RepeatedStratifiedKFold
 from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_predict
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.utils import resample
+from sklearn.experimental import enable_halving_search_cv
+from sklearn.model_selection import HalvingGridSearchCV
+from sklearn.model_selection import HalvingRandomSearchCV
 
 
 ############### LOAD DATA ###############
-def load_subj(CORR_DIR, model_dat):
+def load_subj(CORR_DIR, model_dat, corr_fname='mr_pcorr.txt'):
     """ this function load correlation matrix for each subj """
     subj_dict = {}
     HCPIDs = model_dat['HCPID'].to_list()
     for HCPID in HCPIDs:
         sub_dir = 'sub-'+HCPID.split('_')[0]
-        sub_fpath = CORR_DIR+sub_dir+'/ses-01/mr_corr_pearson.txt'
+        sub_fpath = CORR_DIR+sub_dir+'/ses-01/'+corr_fname
         try:
             sub_df = pd.read_csv(sub_fpath, header=0)
             subj_dict[HCPID] = sub_df
@@ -172,25 +177,26 @@ def lasso_logistic_fit(train_data, test_data, features, DV, c=1e-2, verbose=True
         print("L1 logistic model - Testing accuracy: ", round(test_accuracy, 4))
     return logistic_model
 
-def grid_search_lasso(train_data, features, DV, plot_path=False):
+def grid_search_lasso(train_data, features, DV, lambda_values=None, num_cv=20, plot_path=False):
     start = time.time()
 
     # define model
     model = LogisticRegression(penalty='l1', random_state=1, solver='saga', fit_intercept=False)
 
     # define cross-validation method
-    cv = LeaveOneOut()
+    #cv = LeaveOneOut()
 
     # define parameter space
     space = dict()
     #space['solver'] = ['newton-cg', 'lbfgs', 'liblinear']
     #space['penalty'] = ['l1']
-    space['C'] = np.logspace(-3, 3, 10)
-    lambda_values = 1.0 / space['C']
+    if not lambda_values: lambda_values=1.0/np.logspace(-3, 3, 15)
+    space['C'] = 1.0/lambda_values
 
 
     # define search
-    grid_search = GridSearchCV(estimator=model, param_grid=space, n_jobs=-1, cv=cv, scoring='accuracy', error_score=0)
+    grid_search = GridSearchCV(estimator=model, param_grid=space, n_jobs=-1,
+                               cv=num_cv, scoring='accuracy', error_score=0, return_train_score=True)
 
     # use LOOCV to evaluate model
     # scores = cross_val_score(model, train_data[features], train_data[DV], scoring='accuracy', cv=cv, n_jobs=-1)
@@ -204,6 +210,71 @@ def grid_search_lasso(train_data, features, DV, plot_path=False):
     print("Time usage: %0.3fs" % (time.time() - start))
 
     if plot_path: plot_regularization_path(train_data, features, DV, lambda_values, 1.0/grid_result.best_params_['C'])
+
+    return grid_result
+
+def random_grid_search_lasso(train_data, features, DV, lambda_values=None, num_cv=20, plot_path=False):
+    start = time.time()
+
+    # define model
+    model = LogisticRegression(penalty='l1', random_state=1, solver='saga', fit_intercept=False)
+
+    # define evaluation
+    # cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
+
+    # define parameter space
+    space = dict()
+    #space['solver'] = ['newton-cg', 'lbfgs', 'liblinear']
+    #space['penalty'] = ['l1']
+    if not lambda_values: lambda_values = 1.0/np.logspace(-3, 3, 15)
+    space['C'] = 1.0/lambda_values
+
+    # define search
+    grid_search = RandomizedSearchCV(model, space, n_iter=1000, scoring='accuracy', n_jobs=-1, cv=num_cv, random_state=1, return_train_score=True)
+    
+    # execute search
+    grid_result = grid_search.fit(train_data[features], train_data[DV])
+    
+    # summarize result
+    print('Best Score: %s' % grid_result.best_score_)
+    print('Best Hyperparameters: %s' % grid_result.best_params_)
+    print("Time usage: %0.3fs" % (time.time() - start))
+
+    if plot_path: plot_regularization_path(train_data, features, DV, lambda_values, 1.0/grid_result.best_params_['C'])
+    
+    return grid_result
+
+
+def halving_search_lasso(train_data, features, DV, lambda_values=None, plot_path=False):
+    start = time.time()
+
+    # define model
+    model = LogisticRegression(penalty='l1', random_state=1, solver='saga', fit_intercept=False)
+
+    # define cross-validation method
+    # cv = LeaveOneOut()
+
+    # define parameter space
+    space = dict()
+    # space['solver'] = ['newton-cg', 'lbfgs', 'liblinear']
+    # space['penalty'] = ['l1']
+    if not lambda_values:
+        lambda_values = 1.0 / np.logspace(-3, 3, 15)
+    space['C'] = 1.0 / lambda_values
+
+    # define search
+    grid_search = HalvingGridSearchCV(estimator=model, param_grid=space, factor=2, random_state=1,
+                                      return_train_score=True)
+
+    # execute search
+    grid_result = grid_search.fit(train_data[features], train_data[DV])
+
+    # summarize result
+    print('Best Score: %s' % grid_result.best_score_)
+    print('Best Hyperparameters: %s' % grid_result.best_params_)
+    print("Time usage: %0.3fs" % (time.time() - start))
+
+    if plot_path: plot_regularization_path(train_data, features, DV, lambda_values, 1.0 / grid_result.best_params_['C'])
 
     return grid_result
 
@@ -239,7 +310,7 @@ def loocv_train_test_split_ith(subj_dat, i):
     test_data = subj_dat.iloc[test_index]
     return train_data, test_data
 
-def loocv_logistic_model(subj_censored, features, DV, best_c):
+def loocv_logistic_retrain(subj_censored, features, DV, best_c):
     start = time.time()
     cv = LeaveOneOut()
     num_cv = cv.get_n_splits(subj_censored)
@@ -269,6 +340,27 @@ def loocv_logistic_model(subj_censored, features, DV, best_c):
 
     print('Time Usage (s)', round((time.time() - start), 4))
     return all_ytrue, all_yhat, all_yprob
+
+def cv_logistic_retrain(subj_censored, features, DV, best_c, num_cv):
+    start = time.time()
+
+    # define model
+    model = LogisticRegression(penalty='l1', solver='saga', C=best_c, fit_intercept=False)
+
+    # define cross-validation
+    # kfold = KFold(10, False, 2)
+
+    # Evaluate the model using k-fold CV
+    cross_val_scores = cross_val_score(model, subj_censored[features], subj_censored[DV], cv=num_cv, scoring='accuracy')
+
+    all_ytrue = subj_censored[DV].values
+    all_yhat = cross_val_predict(model, subj_censored[features], subj_censored[DV], cv=num_cv, method='predict')
+    all_yprob = cross_val_predict(model, subj_censored[features], subj_censored[DV], cv=num_cv, method='predict_proba')
+
+    # Get the model performance metrics
+    print("Accuracy Mean: " + str(cross_val_scores.mean()))
+    print("Time Usage", round(time.time() - start, 4))
+    return all_ytrue, all_yhat, all_yprob, cross_val_scores
 
 ############### VISUALIE LOG MODEL ###############
 def print_coefficients(coef, features):
@@ -341,7 +433,8 @@ def plot_regularization_path(train_data, features, DV, lambda_values, best_lambd
 
     coefs_ = np.array(coefs_)
     plt.plot(np.log(lambda_values), coefs_, marker='o')
-    plt.axvline(x=np.log(best_lambda), label='best', c='b')
+    plt.axvline(x=np.log(best_lambda), label='best', c='k', linestyle='--')
+    plt.text(x=best_lambda, y=0.5, s='{:.2e}'.format(best_lambda), color='k')
     plt.xlim(-1, 100)
     plt.ylim(-.3, .3)
 
@@ -351,6 +444,65 @@ def plot_regularization_path(train_data, features, DV, lambda_values, best_lambd
     plt.axis('tight')
     plt.show()
     print("Time usage: %0.3fs" % (time.time() - start))
+
+# def plot_regularization_score_rgs(grid_result1):
+#     gs_df = pd.DataFrame(grid_result1.cv_results_)
+#     train_cols = sorted(
+#         set([match[0] for match in gs_df.columns.str.findall(r'.*\_train_score').values if match != []]))
+#     test_cols = sorted(set([match[0] for match in gs_df.columns.str.findall(r'.*\_test_score').values if match != []]))
+#
+#     train_df = pd.melt(gs_df, id_vars='param_C', value_vars=train_cols, var_name='cv_split', value_name='score')
+#     test_df = pd.melt(gs_df, id_vars='param_C', value_vars=test_cols, var_name='cv_split', value_name='score')
+#
+#     train_df['cv_split'] = 'train'
+#     test_df['cv_split'] = 'test'
+#     df = pd.concat([train_df, test_df], axis=0)
+#     df['param_Lambda'] = 1.0 / df['param_C']
+#
+#     # plot the lambda and score
+#     g = sns.pointplot(data=df, x='param_Lambda', y='score', hue='cv_split', kind="point", dodge=True)
+#     plt.axvline(1.0 / grid_result1.best_params_['C'], linestyle='--', color='k')
+#     g.set_xticklabels(['{:.2e}'.format(x) for x in g.get_xticks()])
+#     # plt.legend([],[], frameon=False)
+#     plt.ylim(0, 1.15)
+#     plt.xticks(rotation=45)
+#     plt.gca().invert_xaxis()
+#     plt.show()
+#
+#     return df
+
+def plot_regularization_score(grid_result):
+    """
+    This func plot the validation score changes as the function of lambda
+    :param grid_result: the grid search result
+    :return: a dataframe of grid search log
+    """
+    gs_df = pd.DataFrame(grid_result.cv_results_)
+    train_df = gs_df[['param_C', 'mean_train_score', 'std_train_score']]
+    test_df = gs_df[['param_C', 'mean_test_score', 'std_test_score']]
+    train_df = train_df.rename(columns={"mean_train_score": "score", "std_train_score": "sd"})
+    test_df = test_df.rename(columns={"mean_test_score": "score", "std_test_score": "sd"})
+
+    train_df['cv_split'] = 'train'
+    test_df['cv_split'] = 'test'
+    df = pd.concat([train_df, test_df], axis=0)
+    df['param_Lambda'] = 1.0 / df['param_C']
+
+    best_lambad = 1.0 / grid_result.best_params_['C']
+
+    # plot the lambda and score
+    g = sns.pointplot(data=df, x='param_Lambda', y='score', hue='cv_split', kind="point", dodge=True)
+    plt.axvline(best_lambad, linestyle='--', color='k')
+    g.set_xticklabels(['{:.2e}'.format(x) for x in g.get_xticks()])
+    # plt.legend([],[], frameon=False)
+    plt.text(x=best_lambad, y=0.5, s='{:.2e}'.format(best_lambad), color='k')
+
+    plt.ylim(0, 1.15)
+    plt.xticks(rotation=45)
+    plt.gca().invert_xaxis()
+    plt.show()
+
+    return df
 
 def plot_prediction(subj_wide, test_data, features, DV, best_lasso):
     test_data[[DV + '_lasso_pred']] = best_lasso.predict_proba(test_data[features])[:, 1]
@@ -365,8 +517,7 @@ def plot_prediction(subj_wide, test_data, features, DV, best_lasso):
     plt.ylabel(DV)
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
 
-def plot_prediction_loo(all_ytrue, all_yhat, all_yprob, threshold):
-    threshold = 0.5
+def plot_prediction_loo(all_ytrue, all_yhat, all_yprob, threshold=0.5):
     all_ytrue2 = [i[0] for i in all_ytrue]
     all_yhat2 = [i[0] for i in all_yhat]
     all_yprob2 = [i[0] for i in all_yprob]
