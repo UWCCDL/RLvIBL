@@ -30,6 +30,8 @@ from sklearn.utils import resample
 from sklearn.experimental import enable_halving_search_cv
 from sklearn.model_selection import HalvingGridSearchCV
 from sklearn.model_selection import HalvingRandomSearchCV
+from nilearn import plotting
+from nilearn import datasets
 
 
 ############### LOAD DATA ###############
@@ -534,3 +536,45 @@ def plot_prediction_loo(all_ytrue, all_yhat, all_yprob, threshold=0.5):
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
 
     plt.show()
+
+
+
+    
+############### BRAIN CONNECTIONS ###############
+def calc_beta_pr(pr_df, features, beta_df, subjID):
+    # calculate beta * pr
+    pr_df['beta'] = beta_df['beta']
+    pr_df[features] = pr_df[features].apply(lambda x: x*pr_df['beta'])
+    
+    # create a beta_pr df
+    bpr_df = pr_df[pr_df['HCPID']==subjID][features].T.reset_index()
+    bpr_df.columns = ['connID', 'beta_pr']
+    return bpr_df
+
+
+def map_beta(censor, coeff_df, power2011):
+    # create a left censor
+    censor_left = censor.copy()
+    censor_left['beta'] = coeff_df
+
+    # make symmetric censor df
+    censor_right = censor_left[['connID', 'beta']].copy()
+    censor_right['connID'] = censor_right['connID'].apply(reverse_connID)
+    censor_LR = censor_left.append(censor_right, ignore_index=True)
+    censor_LR = censor_LR[['connID', 'beta']]
+
+    # merge to main roi df
+    roi_df = get_ROI_df(power2011)
+    roi_df = roi_df.merge(censor_LR, how="left", on=['connID'])
+    roi_df['beta'] = roi_df['beta'].replace(np.nan, 0.0)
+
+    # reformat beta matrix
+    adj_vector = roi_df['beta'].values
+    adj_beta = pd.DataFrame(vector2matrix(adj_vector), dtype='float')
+
+    # grab center coordinates for atlas labels
+    coor_vector = np.array([(0, 0, 0) for i in range(264)])
+    power = datasets.fetch_coords_power_2011()
+    power_coords = np.vstack((power.rois['x'], power.rois['y'], power.rois['z'])).T
+
+    return adj_beta, power_coords
