@@ -6,6 +6,7 @@ import itertools
 import time
 import seaborn as sns
 import matplotlib.pyplot as plt
+from scipy import stats
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
@@ -35,7 +36,7 @@ from nilearn import datasets
 
 
 ############### LOAD DATA ###############
-def load_subj(CORR_DIR, model_dat, corr_fname='mr_pcorr.txt', warn=True):
+def load_subj(CORR_DIR, model_dat, corr_fname='mr_pcorr.txt', znorm=True, warn=True):
     """ this function load correlation matrix for each subj """
     subj_dict = {}
     HCPIDs = model_dat['HCPID'].to_list()
@@ -43,7 +44,13 @@ def load_subj(CORR_DIR, model_dat, corr_fname='mr_pcorr.txt', warn=True):
         sub_dir = 'sub-'+HCPID.split('_')[0]
         sub_fpath = CORR_DIR+sub_dir+'/ses-01/'+corr_fname
         try:
-            sub_df = pd.read_csv(sub_fpath, header=0)
+            sub_df = pd.read_csv(sub_fpath, header=0).round(10)
+
+            # Fisher transformation
+            # NOTE: zscore function default axis=0, need to specify as None to make whole matrix zscore
+            # To eliminate rounding errors, need to round 10 digits
+            if znorm:
+                sub_df = pd.DataFrame(stats.zscore(sub_df, axis=None), columns=sub_df.columns, index=sub_df.index).round(10)
             subj_dict[HCPID] = sub_df
         except:
             if warn: print("WARNING: rsfMRI data missing", HCPID)
@@ -387,8 +394,10 @@ def plot_roc_curve(logistic_model, test_data, features, DV):
     plt.xlabel('Specifity: PPR')
     plt.show()
 
-def plot_roc_curve_loo(all_ytrue, all_yprobs):
-    false_positive_rate, true_positive_rate, _ = roc_curve(all_ytrue, all_yprobs)
+def plot_roc_curve_loo(all_ytrue, all_yprob):
+
+    # calculate fp, tp
+    false_positive_rate, true_positive_rate, _ = roc_curve(all_ytrue, all_yprob)
     plt.subplots(1, figsize=(5, 5))
     plt.title('ROC - Logistic regression')
     roc_auc = auc(false_positive_rate, true_positive_rate)
@@ -442,15 +451,15 @@ def plot_regularization_path(train_data, features, DV, lambda_values, best_lambd
     # fig.set_size_inches(11.7, 8.27)
 
     # plot
-    plt.plot(lambda_values, coefs_, marker='o', linewidth=2)
-    plt.xscale("log")
-    plt.axvline(best_lambda, linestyle='--', color='k')
-    plt.text(x=best_lambda, y=0.1, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
+    ax.plot(lambda_values, coefs_, marker='o', linewidth=2)
+    ax.axvline(best_lambda, linestyle='--', color='k')
+    ax.text(x=1, y=1, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
              transform=ax.transAxes,
-             # horizontalalignment='center', verticalalignment='center',
+             horizontalalignment='center', verticalalignment='center',
              bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
-
+    ax.set_xscale('log')
     plt.xlim(-10, 10)
+    plt.xscale("log")
     # plt.ylim(-.3, .3)
 
     plt.xlabel('Log(Lambda)')
@@ -510,25 +519,25 @@ def plot_regularization_score(grid_result):
 
     # plot the lambda and score
     fig, ax = plt.subplots()
-    sns.pointplot(data=df, x='param_Lambda', y='score', hue='cv_split', kind="point", dodge=True, markers='o', ax=ax)
+    p1 = sns.pointplot(data=df, x='param_Lambda', y='score', hue='cv_split', kind="point", dodge=True, markers='o', ax=ax)
 
     ax.axvline(best_lambda, linestyle='--', color='k')
     ax.set_xticklabels(['{:.2e}'.format(x) for x in ax.get_xticks()])
-    ax.text(x=best_lambda * 10, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
-            # transform=ax.transAxes,
-            # horizontalalignment='center', verticalalignment='center',
+    ax.text(x=1, y=0.85, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
+            transform=ax.transAxes,
+            horizontalalignment='center', verticalalignment='center',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
-    # ax.set_xscale('log')
+    #ax.set_xscale('log')
     ax.invert_xaxis()
-
     plt.xticks(rotation=45)
-    plt.ylim(0, 1)
     plt.xlabel('Lambda')
     plt.ylabel('Score')
     plt.title('Logistic Regression: Cross-Validation Score')
     plt.axis('tight')
     plt.show()
     return df
+
+
 # def plot_regularization_score(grid_result):
 #     """
 #     This func plot the validation score changes as the function of lambda
@@ -580,23 +589,46 @@ def plot_prediction(subj_wide, test_data, features, DV, best_lasso):
     plt.ylabel(DV)
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
 
+
 def plot_prediction_loo(all_ytrue, all_yhat, all_yprob, threshold=0.5):
-    all_ytrue2 = [i[0] for i in all_ytrue]
-    all_yhat2 = [i[0] for i in all_yhat]
-    all_yprob2 = [i[0] for i in all_yprob]
-    pred_data2 = pd.DataFrame({'y_true':all_ytrue2, 'y_prob':all_yprob2, 'y_hat':all_yhat2}, dtype='float').rename_axis(columns='index').reset_index()
-    pred_data2['pred_corr'] = pred_data2['y_true'] == pred_data2['y_hat']
+    pred_data = pd.concat([pd.DataFrame(all_ytrue, dtype='float'),  pd.DataFrame(all_yprob, dtype='float'),  pd.DataFrame(all_yhat, dtype='float')], ignore_index=True, axis=1)
+    pred_data.columns = ['y_true', 'y_prob', 'y_hat']
+    pred_data['pred_corr'] = pred_data['y_true'] == pred_data['y_hat']
+    pred_data = pred_data.reset_index()
 
-    sns.scatterplot(data=pred_data2, x='index', y="y_true")
-    fig = sns.scatterplot(data=pred_data2, x='index', y="y_prob", hue = 'pred_corr', marker = 'x')
-    plt.axhline(y=threshold, color='black', linestyle='-.', label='threshold')
+    fig, ax = plt.subplots()
 
-    plt.xlabel('subj')
-    plt.ylabel('prediction')
+    sns.scatterplot(data=pred_data, x='index', y="y_true", marker="o", alpha=0.6)
+    g = sns.scatterplot(data=pred_data, x='index', y="y_prob", hue='pred_corr', marker='X')
+    plt.axhline(y=threshold, color='black', linestyle='-.')
 
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
-
+    plt.xlabel('Subjects')
+    plt.ylabel('Prediction(Probability)')
+    plt.legend(title="Prediction", bbox_to_anchor=(1.05, 1), borderaxespad=0,
+               loc='best',
+               labels=['Threshold', 'ACT-R Model Prediction', 'Logistic Model Prediction', 'Correct Prediction',
+                       'Incorrect Prediction'])
     plt.show()
+    return pred_data
+
+# def plot_prediction_loo(all_ytrue, all_yhat, all_yprob, threshold=0.5):
+#
+#     all_ytrue2 = [i[0] for i in all_ytrue]
+#     all_yhat2 = [i[0] for i in all_yhat]
+#     all_yprob2 = [i[0] for i in all_yprob]
+#     pred_data2 = pd.DataFrame({'y_true':all_ytrue2, 'y_prob':all_yprob2, 'y_hat':all_yhat2}, dtype='float').rename_axis(columns='index').reset_index()
+#     pred_data2['pred_corr'] = pred_data2['y_true'] == pred_data2['y_hat']
+#
+#     sns.scatterplot(data=pred_data2, x='index', y="y_true")
+#     fig = sns.scatterplot(data=pred_data2, x='index', y="y_prob", hue = 'pred_corr', marker = 'x')
+#     plt.axhline(y=threshold, color='black', linestyle='-.', label='threshold')
+#
+#     plt.xlabel('subj')
+#     plt.ylabel('prediction')
+#
+#     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+#
+#     plt.show()
 
 
 
@@ -611,7 +643,6 @@ def calc_beta_pr(pr_df, features, beta_df, subjID):
     bpr_df = pr_df[pr_df['HCPID']==subjID][features].T.reset_index()
     bpr_df.columns = ['connID', 'beta_pr']
     return bpr_df
-
 
 def map_beta(censor, coeff_df, power2011):
     # create a left censor
@@ -639,3 +670,15 @@ def map_beta(censor, coeff_df, power2011):
     power_coords = np.vstack((power.rois['x'], power.rois['y'], power.rois['z'])).T
 
     return adj_beta, power_coords
+
+def average_corr(subj_wide, DV):
+    """
+    This func averages subject corr matrix
+    :param subj_wide: NxM dataframe, N=number of subjects; M=264*264
+    :param DV:
+    :return: averaged corr matrix for all subj
+    """
+    subj_zmean_vec =  subj_wide.drop(['HCPID', DV], axis=1).mean(axis=0)
+    subj_zmean_mat = vector2matrix(subj_zmean_vec)
+    subj_mean_mat = np.tanh(subj_zmean_mat)
+    return subj_mean_mat
