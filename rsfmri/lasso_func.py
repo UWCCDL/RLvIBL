@@ -35,7 +35,7 @@ from nilearn import datasets
 
 
 ############### LOAD DATA ###############
-def load_subj(CORR_DIR, model_dat, corr_fname='mr_pcorr.txt'):
+def load_subj(CORR_DIR, model_dat, corr_fname='mr_pcorr.txt', warn=True):
     """ this function load correlation matrix for each subj """
     subj_dict = {}
     HCPIDs = model_dat['HCPID'].to_list()
@@ -46,7 +46,7 @@ def load_subj(CORR_DIR, model_dat, corr_fname='mr_pcorr.txt'):
             sub_df = pd.read_csv(sub_fpath, header=0)
             subj_dict[HCPID] = sub_df
         except:
-            print("WARNING: rsfMRI data missing", HCPID)
+            if warn: print("WARNING: rsfMRI data missing", HCPID)
 
     # convert to wide format
     subj_long = pd.DataFrame()
@@ -434,18 +434,33 @@ def plot_regularization_path(train_data, features, DV, lambda_values, best_lambd
         coefs_.append(model.coef_.ravel().copy())
 
     coefs_ = np.array(coefs_)
-    plt.plot(np.log(lambda_values), coefs_, marker='o')
-    plt.axvline(x=np.log(best_lambda), label='best', c='k', linestyle='--')
-    plt.text(x=best_lambda, y=0.5, s='{:.2e}'.format(best_lambda), color='k')
-    plt.xlim(-1, 100)
-    plt.ylim(-.3, .3)
+
+    # define subplot
+    fig, ax = plt.subplots()
+
+    # the size of A4 paper
+    # fig.set_size_inches(11.7, 8.27)
+
+    # plot
+    plt.plot(lambda_values, coefs_, marker='o', linewidth=2)
+    plt.xscale("log")
+    plt.axvline(best_lambda, linestyle='--', color='k')
+    plt.text(x=best_lambda, y=0.1, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
+             transform=ax.transAxes,
+             # horizontalalignment='center', verticalalignment='center',
+             bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+
+    plt.xlim(-10, 10)
+    # plt.ylim(-.3, .3)
 
     plt.xlabel('Log(Lambda)')
     plt.ylabel('Coefficients')
-    plt.title('Logistic Regression Path')
+    plt.title('Logistic Regression: Cross-Validation Path')
     plt.axis('tight')
     plt.show()
+
     print("Time usage: %0.3fs" % (time.time() - start))
+    return coefs_
 
 # def plot_regularization_score_rgs(grid_result1):
 #     gs_df = pd.DataFrame(grid_result1.cv_results_)
@@ -489,22 +504,68 @@ def plot_regularization_score(grid_result):
     test_df['cv_split'] = 'test'
     df = pd.concat([train_df, test_df], axis=0)
     df['param_Lambda'] = 1.0 / df['param_C']
-
-    best_lambad = 1.0 / grid_result.best_params_['C']
+    best_lambda = 1.0 / grid_result.best_params_['C']
+    df[['param_C', 'score', 'sd', 'param_Lambda']] = df[['param_C', 'score', 'sd', 'param_Lambda']].apply(pd.to_numeric)
+    # df['param_Lambda'] = df['param_Lambda'].round(4)
 
     # plot the lambda and score
-    g = sns.pointplot(data=df, x='param_Lambda', y='score', hue='cv_split', kind="point", dodge=True)
-    plt.axvline(best_lambad, linestyle='--', color='k')
-    g.set_xticklabels(['{:.2e}'.format(x) for x in g.get_xticks()])
-    # plt.legend([],[], frameon=False)
-    plt.text(x=best_lambad, y=0.5, s='{:.2e}'.format(best_lambad), color='k')
+    fig, ax = plt.subplots()
+    sns.pointplot(data=df, x='param_Lambda', y='score', hue='cv_split', kind="point", dodge=True, markers='o', ax=ax)
 
-    plt.ylim(0, 1.15)
+    ax.axvline(best_lambda, linestyle='--', color='k')
+    ax.set_xticklabels(['{:.2e}'.format(x) for x in ax.get_xticks()])
+    ax.text(x=best_lambda * 10, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
+            # transform=ax.transAxes,
+            # horizontalalignment='center', verticalalignment='center',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+    # ax.set_xscale('log')
+    ax.invert_xaxis()
+
     plt.xticks(rotation=45)
-    plt.gca().invert_xaxis()
+    plt.ylim(0, 1)
+    plt.xlabel('Lambda')
+    plt.ylabel('Score')
+    plt.title('Logistic Regression: Cross-Validation Score')
+    plt.axis('tight')
     plt.show()
-
     return df
+# def plot_regularization_score(grid_result):
+#     """
+#     This func plot the validation score changes as the function of lambda
+#     :param grid_result: the grid search result
+#     :return: a dataframe of grid search log
+#     """
+#     gs_df = pd.DataFrame(grid_result.cv_results_)
+#     train_df = gs_df[['param_C', 'mean_train_score', 'std_train_score']]
+#     test_df = gs_df[['param_C', 'mean_test_score', 'std_test_score']]
+#     train_df = train_df.rename(columns={"mean_train_score": "score", "std_train_score": "sd"})
+#     test_df = test_df.rename(columns={"mean_test_score": "score", "std_test_score": "sd"})
+#
+#     train_df['cv_split'] = 'train'
+#     test_df['cv_split'] = 'test'
+#     df = pd.concat([train_df, test_df], axis=0)
+#     df['param_Lambda'] = 1.0 / df['param_C']
+#
+#     best_lambda = 1.0 / grid_result.best_params_['C']
+#
+#     # plot the lambda and score
+#     sns.pointplot(data=df, x='param_Lambda', y='score', hue='cv_split', kind="point", dodge=True)
+#     plt.axvline(np.log(best_lambda), linestyle='--', color='k')
+#     #g.set_xticklabels(['{:.2e}'.format(x) for x in g.get_xticks()])
+#     # plt.legend([],[], frameon=False)
+#     plt.text(x=np.log(best_lambda)-10, y=0.8, s='best lambda\n{:.2e}'.format(best_lambda), color='k')
+#
+#     plt.ylim(0, 1.15)
+#     plt.xscale("log")
+#     #plt.xticks(rotation=45)
+#     plt.gca().invert_xaxis()
+#     plt.xlabel('Log(Lambda)')
+#     plt.ylabel('Score')
+#     plt.title('Logistic Regression: Cross-Validation Score')
+#     plt.axis('tight')
+#     plt.show()
+#
+#     return df
 
 def plot_prediction(subj_wide, test_data, features, DV, best_lasso):
     test_data[[DV + '_lasso_pred']] = best_lasso.predict_proba(test_data[features])[:, 1]
