@@ -1,9 +1,12 @@
+
+.libPaths(c(.libPaths(), "/home/stocco/R/x86_64-pc-linux-gnu-library/3.6"))
 library(tidyverse)
 rm(list = ls())
 
 # load func
 load("./func.RData")
-setwd("~/Documents/GitProject/RLvIBL/actr-models/model_output")
+#setwd("~/Documents/GitProject/RLvIBL/actr-models/model_output")
+setwd('/home/chery/Desktop/RLvIBL/actr-models/model_output')
 
 load.mdat <- function(model, subjID) {
   m.gsfiles = list.files(path = ".", pattern = paste("^", str_to_upper(model), ".*",subjID, "*_gs.csv$", sep = ""), full.names = T)
@@ -48,6 +51,7 @@ calc.mLL <- function(subjID, subj.dat, m1.dat, m2.dat){
     mutate(HCPID = subjID) 
   
   m1.logL <- left_join(m1.agg, subj.dat, by = c("HCPID", "BlockType", "TrialType")) %>%
+    filter(TrialType!='Neutral') %>%
     mutate(PSwitch.z = (PSwitch.subj-PSwitch.mean)/(PSwitch.sd),
            PSwitch.probz = dnorm(PSwitch.z, 0, 1),
            PSwitch.logprobz = log(PSwitch.probz)) %>% 
@@ -57,6 +61,7 @@ calc.mLL <- function(subjID, subj.dat, m1.dat, m2.dat){
     slice_max(PSwitch.LL, n = 1)
   
   m2.logL <- left_join(m2.agg, subj.dat, by = c("HCPID", "BlockType", "TrialType")) %>%
+    filter(TrialType!='Neutral') %>%
     mutate(PSwitch.z = (PSwitch.subj-PSwitch.mean)/(PSwitch.sd),
            PSwitch.probz = dnorm(PSwitch.z, 0, 1),
            PSwitch.logprobz = log(PSwitch.probz)) %>% 
@@ -94,24 +99,35 @@ runLL <- function() {
   #subjID <- '100408_fnca'
   m1.HCPIDs = load.HCPID('model1')
   m2.HCPIDs = load.HCPID('model2')
-  HCPIDs = m1.HCPIDs
-  if (all(m1.HCPIDs==m2.HCPIDs)) {
+  HCPIDs = data.frame('HCPID' = m1.HCPIDs)
+  done.IDs = NULL
+  if (file.exists('./MODELLogLikelihood.csv')) {
     done.IDs = read.csv('./MODELLogLikelihood.csv') %>% select(HCPID)
-    HCPIDs <- anti_join(data.frame(HCPID = m1.HCPIDs), done.IDs)
+  }
+  
+  if (all(m1.HCPIDs==m2.HCPIDs)) {
+    if (!is.null(done.IDs)) {
+      HCPIDs <- anti_join(data.frame(HCPID = m1.HCPIDs), done.IDs)
+    }
   } else{
     missing.IDs <- anti_join(data.frame(HCPID = m1.HCPIDs), data.frame(HCPID = m2.HCPIDs))
     print("Missing some gs files")
     print(missing.IDs)
-    done.IDs = read.csv('./MODELLogLikelihood.csv') %>% select(HCPID)
-    HCPIDs <- anti_join(data.frame(HCPID = m1.HCPIDs), done.IDs)
-    HCPIDs <- anti_join(HCPIDs, missing.IDs)
+    if (!is.null(done.IDs)) {
+      HCPIDs <- anti_join(data.frame(HCPID = m1.HCPIDs), done.IDs)
+      HCPIDs <- anti_join(HCPIDs, missing.IDs)
+    }
   }
   
   #HCPIDs <- c('127630_fnca')
   df.LL <- data.frame()
   for (subjID in HCPIDs$HCPID) {
-    m1.dat = load.mdat("model1", subjID)
-    m2.dat = load.mdat("model2", subjID)
+    m1.dat = try(load.mdat("model1", subjID), silent = T)
+    m2.dat = try(load.mdat("model2", subjID), silent = T)
+    if (inherits(m1.dat, 'try-error') |inherits(m2.dat, 'try-error') ) {
+      print('skip')
+      next
+    }
     subj.dat = load.sdat(subjID)
     df.LL <- df.LL %>% 
       rbind(calc.mLL(subjID, subj.dat, m1.dat, m2.dat))
