@@ -26,6 +26,7 @@ from sklearn.model_selection import LeaveOneOut
 from sklearn.model_selection import KFold, RepeatedStratifiedKFold
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import cross_val_predict
+from sklearn.model_selection import validation_curve
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.utils import resample
 from sklearn.experimental import enable_halving_search_cv
@@ -199,7 +200,7 @@ def grid_search_lasso(train_data, features, DV, lambda_values=None, num_cv=20, p
     space = dict()
     #space['solver'] = ['newton-cg', 'lbfgs', 'liblinear']
     #space['penalty'] = ['l1']
-    if not lambda_values: lambda_values=1.0/np.logspace(-3, 3, 15)
+    if lambda_values == None: lambda_values=1.0/np.logspace(-3, 3, 100)
     space['C'] = 1.0/lambda_values
 
 
@@ -430,30 +431,30 @@ def plot_confusion_matrix_loo(all_ytrue, all_yhat, norm=None):
     sns.heatmap(data, annot=True, xticklabels=['Actual Pos', 'Actual Neg'], yticklabels=['Pred. Pos', 'Pred. Neg'])
     plt.show()
 
-def plot_regularization_path(train_data, features, DV, lambda_values, best_lambda):
+def plot_regularization_path(X, y, lambda_values):
     start = time.time()
-    model = LogisticRegression(penalty='l1', solver='saga',
-                             tol=1e-3, max_iter=int(1e2),
-                             warm_start=True)
+    model = LogisticRegression(penalty='l1', solver='saga', tol=1e-3, max_iter=int(1e2), warm_start=True)
+    
     coefs_ = []
     c_values = 1.0 / lambda_values
     for c in c_values:
         model.set_params(C=c)
-        model.fit(train_data[features], train_data[DV])
+        model.fit(X, y)
         coefs_.append(model.coef_.ravel().copy())
 
     coefs_ = np.array(coefs_)
 
     # define subplot
+    sns.color_palette('Set2')
     fig, ax = plt.subplots()
 
     # the size of A4 paper
     # fig.set_size_inches(11.7, 8.27)
 
     # plot
-    ax.plot(lambda_values, coefs_, marker='o', linewidth=2)
+    ax.plot(lambda_values, coefs_, marker='o', linewidth=1)
     ax.axvline(best_lambda, linestyle='--', color='k')
-    ax.text(x=1, y=1, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
+    ax.text(x=0.8, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
              transform=ax.transAxes,
              horizontalalignment='center', verticalalignment='center',
              bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
@@ -497,7 +498,7 @@ def plot_regularization_path(train_data, features, DV, lambda_values, best_lambd
 #
 #     return df
 
-def plot_regularization_score(grid_result):
+def plot_regularization_score_old(grid_result):
     """
     This func plot the validation score changes as the function of lambda
     :param grid_result: the grid search result
@@ -523,7 +524,7 @@ def plot_regularization_score(grid_result):
 
     ax.axvline(best_lambda, linestyle='--', color='k')
     ax.set_xticklabels(['{:.2e}'.format(x) for x in ax.get_xticks()])
-    ax.text(x=1, y=0.85, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
+    ax.text(x=0.8, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
             transform=ax.transAxes,
             horizontalalignment='center', verticalalignment='center',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
@@ -537,6 +538,51 @@ def plot_regularization_score(grid_result):
     plt.show()
     return df
 
+def plot_regularization_score(X, y, lambda_range=None, num_cv=20):
+    start = time.time()
+    if lambda_range == None: lambda_range = np.logspace(-2, 2, 100)
+    param_range = 1.0/lambda_range
+    
+    model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False)
+    train_scores, test_scores = validation_curve(model, X, y, param_name='C', error_score='raise', cv=num_cv,
+                                                 param_range=param_range, scoring="roc_auc", n_jobs=1)
+    train_scores_mean = np.mean(train_scores, axis=1)
+    train_scores_std = np.std(train_scores, axis=1)
+    test_scores_mean = np.mean(test_scores, axis=1)
+    test_scores_std = np.std(test_scores, axis=1)
+    
+    score_df = pd.DataFrame({'train_scores_mean':train_scores_mean, 'train_scores_std':train_scores_std,
+                             'test_scores_mean':test_scores_mean, 'test_scores_std':test_scores_std,
+                             'lambda_range':lambda_range,})
+    score_df['best_lambda'] = lambda_range[np.argmax(test_scores_mean)]
+    
+    fig, ax = plt.subplots()
+    plt.title("Logistic Regression: Cross-Validation Score")
+    plt.xlabel(r"$\lambda$")
+    plt.ylabel("Score")
+    plt.ylim(0.0, 1.1)
+    lw = 2
+
+    ax.semilogx(lambda_range, train_scores_mean, label="Training score",
+                 color="darkorange", lw=lw)
+    ax.fill_between(lambda_range, train_scores_mean - train_scores_std,
+                     train_scores_mean + train_scores_std, alpha=0.2,
+                     color="darkorange", lw=lw)
+    ax.semilogx(lambda_range, test_scores_mean, label="Cross-validation score",
+                 color="navy", lw=lw)
+    ax.fill_between(lambda_range, test_scores_mean - test_scores_std,
+                     test_scores_mean + test_scores_std, alpha=0.2,
+                     color="navy", lw=lw)
+    ax.axvline(best_lambda, linestyle='--', color='k')
+    ax.text(x=best_lambda, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
+            #transform=ax.transAxes,
+            horizontalalignment='center', verticalalignment='center',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+    plt.legend(loc="best")
+    plt.show()
+    
+    print('Time Usage: (s)', time.time()-start)
+    return score_df
 
 # def plot_regularization_score(grid_result):
 #     """
