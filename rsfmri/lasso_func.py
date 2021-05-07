@@ -187,11 +187,11 @@ def lasso_logistic_fit(train_data, test_data, features, DV, c=1e-2, verbose=True
         print("L1 logistic model - Testing accuracy: ", round(test_accuracy, 4))
     return logistic_model
 
-def grid_search_lasso(train_data, features, DV, lambda_values=None, num_cv=20, plot_path=False):
+def grid_search_lasso(X, y, lambda_values=None, num_cv=20, plot_path=False):
     start = time.time()
 
     # define model
-    model = LogisticRegression(penalty='l1', random_state=1, solver='saga', fit_intercept=False)
+    model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False)
 
     # define cross-validation method
     #cv = LeaveOneOut()
@@ -212,22 +212,22 @@ def grid_search_lasso(train_data, features, DV, lambda_values=None, num_cv=20, p
     # scores = cross_val_score(model, train_data[features], train_data[DV], scoring='accuracy', cv=cv, n_jobs=-1)
 
     # execute search
-    grid_result = grid_search.fit(train_data[features], train_data[DV])
+    grid_result = grid_search.fit(X, y)
 
     # summarize result
     print('Best Score: %s' % grid_result.best_score_)
     print('Best Hyperparameters: %s' % grid_result.best_params_)
     print("Time usage: %0.3fs" % (time.time() - start))
 
-    if plot_path: plot_regularization_path(train_data, features, DV, lambda_values, 1.0/grid_result.best_params_['C'])
+    #if plot_path: plot_regularization_path(train_data, features, DV, lambda_values, 1.0/grid_result.best_params_['C'])
 
     return grid_result
 
-def random_grid_search_lasso(train_data, features, DV, lambda_values=None, num_cv=20, plot_path=False):
+def random_grid_search_lasso(X, y, lambda_values=None, num_cv=20, plot_path=False):
     start = time.time()
 
     # define model
-    model = LogisticRegression(penalty='l1', random_state=1, solver='saga', fit_intercept=False)
+    model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False)
 
     # define evaluation
     # cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
@@ -236,30 +236,29 @@ def random_grid_search_lasso(train_data, features, DV, lambda_values=None, num_c
     space = dict()
     #space['solver'] = ['newton-cg', 'lbfgs', 'liblinear']
     #space['penalty'] = ['l1']
-    if not lambda_values: lambda_values = 1.0/np.logspace(-3, 3, 15)
+    if lambda_values == None: lambda_values=1.0/np.logspace(-3, 3, 100)
     space['C'] = 1.0/lambda_values
 
     # define search
     grid_search = RandomizedSearchCV(model, space, n_iter=1000, scoring='accuracy', n_jobs=-1, cv=num_cv, random_state=1, return_train_score=True)
     
     # execute search
-    grid_result = grid_search.fit(train_data[features], train_data[DV])
+    grid_result = grid_search.fit(X, y)
     
     # summarize result
     print('Best Score: %s' % grid_result.best_score_)
     print('Best Hyperparameters: %s' % grid_result.best_params_)
     print("Time usage: %0.3fs" % (time.time() - start))
 
-    if plot_path: plot_regularization_path(train_data, features, DV, lambda_values, 1.0/grid_result.best_params_['C'])
+    #if plot_path: plot_regularization_path(train_data, features, DV, lambda_values, 1.0/grid_result.best_params_['C'])
     
     return grid_result
 
-
-def halving_search_lasso(train_data, features, DV, lambda_values=None, plot_path=False):
+def halving_search_lasso(X, y, lambda_values=None, plot_path=False):
     start = time.time()
 
     # define model
-    model = LogisticRegression(penalty='l1', random_state=1, solver='saga', fit_intercept=False)
+    model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False)
 
     # define cross-validation method
     # cv = LeaveOneOut()
@@ -268,23 +267,21 @@ def halving_search_lasso(train_data, features, DV, lambda_values=None, plot_path
     space = dict()
     # space['solver'] = ['newton-cg', 'lbfgs', 'liblinear']
     # space['penalty'] = ['l1']
-    if not lambda_values:
-        lambda_values = 1.0 / np.logspace(-3, 3, 15)
+    if lambda_values == None: lambda_values=1.0/np.logspace(-3, 3, 100)
     space['C'] = 1.0 / lambda_values
 
     # define search
-    grid_search = HalvingGridSearchCV(estimator=model, param_grid=space, factor=2, random_state=1,
-                                      return_train_score=True)
+    grid_search = HalvingGridSearchCV(estimator=model, param_grid=space, factor=2, return_train_score=True)
 
     # execute search
-    grid_result = grid_search.fit(train_data[features], train_data[DV])
+    grid_result = grid_search.fit(X, y)
 
     # summarize result
     print('Best Score: %s' % grid_result.best_score_)
     print('Best Hyperparameters: %s' % grid_result.best_params_)
     print("Time usage: %0.3fs" % (time.time() - start))
 
-    if plot_path: plot_regularization_path(train_data, features, DV, lambda_values, 1.0 / grid_result.best_params_['C'])
+    #if plot_path: plot_regularization_path(train_data, features, DV, lambda_values, 1.0 / grid_result.best_params_['C'])
 
     return grid_result
 
@@ -431,12 +428,13 @@ def plot_confusion_matrix_loo(all_ytrue, all_yhat, norm=None):
     sns.heatmap(data, annot=True, xticklabels=['Actual Pos', 'Actual Neg'], yticklabels=['Pred. Pos', 'Pred. Neg'])
     plt.show()
 
-def plot_regularization_path(X, y, lambda_values):
+def plot_regularization_path(X, y, best_lambda, lambda_values=None):
     start = time.time()
     model = LogisticRegression(penalty='l1', solver='saga', tol=1e-3, max_iter=int(1e2), warm_start=True)
-    
+
+    c_values = np.logspace(-2, 2, 100)
+    if lambda_values == None: lambda_values = 1.0/c_values
     coefs_ = []
-    c_values = 1.0 / lambda_values
     for c in c_values:
         model.set_params(C=c)
         model.fit(X, y)
@@ -452,7 +450,7 @@ def plot_regularization_path(X, y, lambda_values):
     # fig.set_size_inches(11.7, 8.27)
 
     # plot
-    ax.plot(lambda_values, coefs_, marker='o', linewidth=1)
+    ax.plot(lambda_values, coefs_, marker='.', linewidth=1)
     ax.axvline(best_lambda, linestyle='--', color='k')
     ax.text(x=0.8, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
              transform=ax.transAxes,
@@ -463,7 +461,7 @@ def plot_regularization_path(X, y, lambda_values):
     plt.xscale("log")
     # plt.ylim(-.3, .3)
 
-    plt.xlabel('Log(Lambda)')
+    plt.xlabel(r"$\lambda$")
     plt.ylabel('Coefficients')
     plt.title('Logistic Regression: Cross-Validation Path')
     plt.axis('tight')
@@ -531,17 +529,17 @@ def plot_regularization_score_old(grid_result):
     #ax.set_xscale('log')
     ax.invert_xaxis()
     plt.xticks(rotation=45)
-    plt.xlabel('Lambda')
+    plt.xlabel(r"$\lambda$")
     plt.ylabel('Score')
     plt.title('Logistic Regression: Cross-Validation Score')
     plt.axis('tight')
     plt.show()
     return df
 
-def plot_regularization_score(X, y, lambda_range=None, num_cv=20):
+def plot_regularization_score(X, y, gs_best_lambda, lambda_values=None, num_cv=10):
     start = time.time()
-    if lambda_range == None: lambda_range = np.logspace(-2, 2, 100)
-    param_range = 1.0/lambda_range
+    if lambda_values == None: lambda_values = np.logspace(-2, 2, 100)
+    param_range = 1.0/lambda_values
     
     model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False)
     train_scores, test_scores = validation_curve(model, X, y, param_name='C', error_score='raise', cv=num_cv,
@@ -550,11 +548,13 @@ def plot_regularization_score(X, y, lambda_range=None, num_cv=20):
     train_scores_std = np.std(train_scores, axis=1)
     test_scores_mean = np.mean(test_scores, axis=1)
     test_scores_std = np.std(test_scores, axis=1)
+    best_lambda = lambda_values[np.argmax(test_scores_mean)]
+    if gs_best_lambda == None: gs_best_lambda = best_lambda
     
     score_df = pd.DataFrame({'train_scores_mean':train_scores_mean, 'train_scores_std':train_scores_std,
                              'test_scores_mean':test_scores_mean, 'test_scores_std':test_scores_std,
-                             'lambda_range':lambda_range,})
-    score_df['best_lambda'] = lambda_range[np.argmax(test_scores_mean)]
+                             'lambda_values':lambda_values,})
+    score_df['best_lambda'] = best_lambda
     
     fig, ax = plt.subplots()
     plt.title("Logistic Regression: Cross-Validation Score")
@@ -563,25 +563,25 @@ def plot_regularization_score(X, y, lambda_range=None, num_cv=20):
     plt.ylim(0.0, 1.1)
     lw = 2
 
-    ax.semilogx(lambda_range, train_scores_mean, label="Training score",
+    ax.semilogx(lambda_values, train_scores_mean, label="Training score",
                  color="darkorange", lw=lw)
-    ax.fill_between(lambda_range, train_scores_mean - train_scores_std,
+    ax.fill_between(lambda_values, train_scores_mean - train_scores_std,
                      train_scores_mean + train_scores_std, alpha=0.2,
                      color="darkorange", lw=lw)
-    ax.semilogx(lambda_range, test_scores_mean, label="Cross-validation score",
+    ax.semilogx(lambda_values, test_scores_mean, label="Cross-validation score",
                  color="navy", lw=lw)
-    ax.fill_between(lambda_range, test_scores_mean - test_scores_std,
+    ax.fill_between(lambda_values, test_scores_mean - test_scores_std,
                      test_scores_mean + test_scores_std, alpha=0.2,
                      color="navy", lw=lw)
-    ax.axvline(best_lambda, linestyle='--', color='k')
-    ax.text(x=best_lambda, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
+    ax.axvline(gs_best_lambda, linestyle='--', color='k')
+    ax.text(x=gs_best_lambda, y=0.7, s='best lambda\n{:.2e}'.format(gs_best_lambda), color='k', fontsize=12,
             #transform=ax.transAxes,
             horizontalalignment='center', verticalalignment='center',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
     plt.legend(loc="best")
     plt.show()
     
-    print('Time Usage: (s)', time.time()-start)
+    print("Time usage: %0.3fs" % (time.time() - start))
     return score_df
 
 # def plot_regularization_score(grid_result):
