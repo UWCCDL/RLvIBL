@@ -7,7 +7,7 @@ rm(list = ls())
 # load func
 load("./func.RData")
 #setwd("~/Documents/GitProject/RLvIBL/actr-models/model_output")
-setwd('/home/chery/Desktop/RLvIBL/actr-models/model_output')
+setwd('/home/chery/Desktop/RLvIBL/actr-models/model_output_local')
 
 load.mdat <- function(model, subjID) {
   m.gsfiles = list.files(path = ".", pattern = paste("^", str_to_upper(model), ".*",subjID, "*_gs.csv$", sep = ""), full.names = T)
