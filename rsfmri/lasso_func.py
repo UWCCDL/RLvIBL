@@ -37,13 +37,13 @@ from nilearn import datasets
 
 
 ############### LOAD DATA ###############
-def load_subj(CORR_DIR, model_dat, corr_fname='mr_pcorr.txt', znorm=True, warn=True):
+def load_subj(model_dat, CORR_DIR='./connectivity_matrix', TASK_DIR='/REST1/', SES_DIR='/ses-01/', corr_fname='mr_pcorr.txt', znorm=True, warn=True):
     """ this function load correlation matrix for each subj """
     subj_dict = {}
     HCPIDs = model_dat['HCPID'].to_list()
     for HCPID in HCPIDs:
         sub_dir = 'sub-'+HCPID.split('_')[0]
-        sub_fpath = CORR_DIR+sub_dir+'/ses-01/'+corr_fname
+        sub_fpath = CORR_DIR+TASK_DIR+sub_dir+SES_DIR+corr_fname
         try:
             sub_df = pd.read_csv(sub_fpath, header=0).round(10)
 
