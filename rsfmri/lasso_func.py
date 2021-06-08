@@ -1,9 +1,26 @@
+###################### ACT-R + PYTHON TEMPLATE #######################
+#   Author: Cher Yang
+#   Date: 3.20.2021
+# This script provides lasso analysis functions
+#
+# Bugs: 
+#
+# TODO: 5/27: change upsampling to downsampling
+# 
+# Requirement: 
+#
+#
+#
+###################### ####################### #######################
+
+
 import pandas as pd
 import numpy as np
 import json
 import os, glob
 import itertools
 import time
+import random
 import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy import stats
@@ -191,7 +208,7 @@ def grid_search_lasso(X, y, lambda_values=None, num_cv=20, plot_path=False):
     start = time.time()
 
     # define model
-    model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False)
+    model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False, max_iter=10000, tol=0.01)
 
     # define parameter space
     space = dict()
@@ -224,7 +241,7 @@ def random_grid_search_lasso(X, y, lambda_values=None, num_cv=20, plot_path=Fals
     start = time.time()
 
     # define model
-    model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False)
+    model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False, max_iter=10000, tol=0.1)
 
     # define evaluation
     # cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
@@ -290,18 +307,29 @@ def balance_training_sample(subj_dat, DV):
         subj_majority = subj_dat[subj_dat[DV]==0]
         subj_minority = subj_dat[subj_dat[DV]==1]
         majority_count = num_class0
+        minority_count = num_class1
     else:
         subj_majority = subj_dat[subj_dat[DV]==1]
         subj_minority = subj_dat[subj_dat[DV]==0]
         majority_count = num_class1
-
+        minority_count = num_class0
+	
+    '''
     # upsample minority class
     subj_minority_upsampled = resample(subj_minority, replace=True, n_samples=majority_count, random_state=1)
-
+    
     # combine majorrity class with upsampled miniority class
     subj_upsampled = pd.concat([subj_majority, subj_minority_upsampled])
     subj_upsampled = subj_upsampled.reset_index()
-    return subj_upsampled
+    '''
+    
+    # downsample majority class
+    subj_majority_downsampled = subj_majority.sample(n=minority_count, replace=False)
+    
+    # combine minority with downsampled majority class
+    subj_downsampled = pd.concat([subj_minority, subj_majority_downsampled])
+    subj_downsampled = subj_downsampled.reset_index()
+    return subj_downsampled
 
 def loocv_train_test_split_ith(subj_dat, i):
     assert i < len(subj_dat)
@@ -376,7 +404,8 @@ def plot_roc_curve(logistic_model, test_data, features, DV):
     y_score = logistic_model.predict_proba(test_data[features])[:, 1]
     false_positive_rate, true_positive_rate, threshold = roc_curve(test_data[DV], y_score)
     print('ROC Accuracy Score for Logistic Regression: ', roc_auc_score(test_data[DV], y_score))
-
+    
+    # plot
     plt.subplots(1, figsize=(5, 5))
     plt.title('ROC - Logistic regression')
     plt.plot(false_positive_rate, true_positive_rate)
@@ -385,8 +414,9 @@ def plot_roc_curve(logistic_model, test_data, features, DV):
     plt.ylabel('Sensitivity: TPR')
     plt.xlabel('Specifity: PPR')
     plt.show()
+    plt.close()
 
-def plot_roc_curve_loo(pred_data, save=False):
+def plot_roc_curve_loo(pred_data, save_plot=False, cache_prefix='r1s1_'):
     # calculate fp, tp
     fp, tp, _ = roc_curve(pred_data['ytrue'].values, pred_data['yprob'].values)
     
@@ -403,8 +433,9 @@ def plot_roc_curve_loo(pred_data, save=False):
     plt.legend(loc="lower right", fontsize='large')
     
     # save
-    if save: plt.savefig('./bin/roc.png')
+    if save_plot: plt.savefig('./bin/'+cache_prefix+'roc.png')
     plt.show()
+    plt.close()
     
 def plot_confusion_matrix(logistic_model, test_data, features, DV):
     """
@@ -421,15 +452,17 @@ def plot_confusion_matrix(logistic_model, test_data, features, DV):
     sns.heatmap(data, annot=True, xticklabels=['Actual Pos', 'Actual Neg'], yticklabels=['Pred. Pos', 'Pred. Neg'])
     plt.show()
 
-def plot_confusion_matrix_loo(pred_data, save=False, norm=None):
+def plot_confusion_matrix_loo(pred_data, norm=None, save_plot=False, cache_prefix='r1s1_'):
     tn, fp, fn, tp = confusion_matrix(pred_data['ytrue'].values, pred_data['yhat'].values, normalize = norm).ravel()
     data = np.matrix([[tp, fp], [fn, tn]])
     
-    plt.subplots(1, figsize=(15, 15))
-    plt.title('Accuracy Score: {:.4f}'.format(accuracy_score(pred_data['ytrue'].values, pred_data['yhat'].values)))
+	# plot
+    plt.subplots(1, figsize=(15, 18))
+    plt.title('Confusion Matrix - Logistic Regression\n Accuracy Score: {:.4f}'.format(accuracy_score(pred_data['ytrue'].values, pred_data['yhat'].values)))
     sns.heatmap(data, annot=True, xticklabels=['Actual Pos', 'Actual Neg'], yticklabels=['Pred. Pos', 'Pred. Neg'])
-    if save: plt.savefig('./bin/confusion_matrix.png')                         
+    if save_plot: plt.savefig('./bin/'+cache_prefix+'confusion_matrix.png')                         
     plt.show()
+    plt.close()
 
 def save_regularization_path(X, y, best_lambda, lambda_values=None):
     start = time.time()
@@ -447,71 +480,25 @@ def save_regularization_path(X, y, best_lambda, lambda_values=None):
     print("Time usage: %0.3fs" % (time.time() - start))
     return coefs_
 
-def plot_regularization_path(coefs_, best_lambda, lambda_values):
-    # define subplot
-    sns.color_palette('Set2')
-    fig, ax = plt.subplots(figsize=(20, 12))
-
-    # the size of A4 paper
-    #fig.set_size_inches(11.7, 8.27)
-
-    # plot
-    ax.plot(lambda_values, coefs_, marker='o', linewidth=2)
-    ax.axvline(best_lambda, linestyle='--', color='k')
-    ax.text(x=0.8, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=40,
-             transform=ax.transAxes,
-             horizontalalignment='center', verticalalignment='center',
-             bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
-    ax.set_xscale('log')
-    plt.xscale("log")
-
-    plt.xlabel(r"$\lambda$")
-    plt.ylabel('Coefficients')
-    plt.title('Logistic Regression: Cross-Validation Path')
-    plt.axis('tight')
-    plt.show()
-    
-def plot_regularization_path_old(X, y, best_lambda, lambda_values=None):
-    start = time.time()
-    model = LogisticRegression(penalty='l1', solver='saga', tol=1e-3, max_iter=int(1e2), warm_start=True)
-
-    c_values = np.logspace(-2, 2, 100)
-    if lambda_values == None: lambda_values = 1.0/c_values
-    coefs_ = []
-    for c in c_values:
-        model.set_params(C=c)
-        model.fit(X, y)
-        coefs_.append(model.coef_.ravel().copy())
-
-    coefs_ = np.array(coefs_)
-
-    # define subplot
-    sns.color_palette('Set2')
-    fig, ax = plt.subplots()
-
-    # the size of A4 paper
-    # fig.set_size_inches(11.7, 8.27)
-
-    # plot
-    ax.plot(lambda_values, coefs_, marker='.', linewidth=1)
-    ax.axvline(best_lambda, linestyle='--', color='k')
-    ax.text(x=0.8, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=12,
-             transform=ax.transAxes,
-             horizontalalignment='center', verticalalignment='center',
-             bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
-    ax.set_xscale('log')
-    plt.xlim(-10, 10)
-    plt.xscale("log")
-    # plt.ylim(-.3, .3)
-
-    plt.xlabel(r"$\lambda$")
-    plt.ylabel('Coefficients')
-    plt.title('Logistic Regression: Cross-Validation Path')
-    plt.axis('tight')
-    plt.show()
-
-    print("Time usage: %0.3fs" % (time.time() - start))
-    return coefs_
+def plot_regularization_path(coefs_, best_lambda, lambda_values, save_plot=False, cache_prefix='r1s1_'):
+	# plot
+	sns.color_palette('Set2')
+	fig, ax = plt.subplots(figsize=(20, 12))
+	ax.plot(lambda_values, coefs_, marker='o', linewidth=2)
+	ax.axvline(best_lambda, linestyle='--', color='k')
+	ax.text(x=0.8, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=40,
+			transform=ax.transAxes,
+			horizontalalignment='center', verticalalignment='center',
+			bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+	ax.set_xscale('log')
+	plt.xscale("log")
+	plt.xlabel(r"$\lambda$")
+	plt.ylabel('Coefficients')
+	plt.title('Logistic Regression: Cross-Validation Path')
+	plt.axis('tight')
+	if save_plot: plt.savefig('./bin/'+cache_prefix+'coefs.png')
+	plt.show()
+	plt.close()
 
 def save_regularization_score(X, y, best_lambda=None, lambda_values=None, num_cv=10):
     start = time.time()
@@ -542,140 +529,58 @@ def save_regularization_score(X, y, best_lambda=None, lambda_values=None, num_cv
     print("Time usage: %0.3fs" % (time.time() - start))
     return score_df
 
-def plot_regularization_score(score_df, gs_best_lambda):
+def plot_regularization_score(score_df, best_lambda, save_plot=False, cache_prefix='r1s1_'):
     lambda_values = score_df['lambda_values']
     train_scores_mean = score_df['train_scores_mean']
     train_scores_std = score_df['train_scores_std']
     test_scores_mean = score_df['test_scores_mean']
     test_scores_std = score_df['test_scores_std']
     
-    
+    # plot
     fig, ax = plt.subplots(figsize=(20, 12))
     plt.title("Logistic Regression: Cross-Validation Score")
     plt.xlabel(r"$\lambda$")
     plt.ylabel("Score")
     plt.ylim(0.0, 1.1)
     lw = 2
-
+    
     ax.semilogx(lambda_values, train_scores_mean, label="Training score",
-                 color="darkorange", lw=lw)
+        color="darkorange", lw=lw)
     ax.fill_between(lambda_values, train_scores_mean - train_scores_std,
-                     train_scores_mean + train_scores_std, alpha=0.2,
-                     color="darkorange", lw=lw)
+        train_scores_mean + train_scores_std, alpha=0.2, color="darkorange", lw=lw)
     ax.semilogx(lambda_values, test_scores_mean, label="Cross-validation score",
-                 color="navy", lw=lw)
-    ax.fill_between(lambda_values, test_scores_mean - test_scores_std,
-                     test_scores_mean + test_scores_std, alpha=0.2,
-                     color="navy", lw=lw)
-    ax.axvline(gs_best_lambda, linestyle='--', color='k')
-    ax.text(x=gs_best_lambda, y=0.7, s='best lambda\n{:.2e}'.format(gs_best_lambda), color='k', fontsize=40,
-            #transform=ax.transAxes,
+        color="navy", lw=lw)
+    ax.fill_between(lambda_values, test_scores_mean - test_scores_std, 
+        test_scores_mean + test_scores_std, alpha=0.2, color="navy", lw=lw)
+    ax.axvline(best_lambda, linestyle='--', color='k')
+    ax.text(x=best_lambda, y=0.7, s='best lambda\n{:.2e}'.format(best_lambda), color='k', fontsize=40,
+            #transform=ax.transAxes, 
             horizontalalignment='center', verticalalignment='center',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
     plt.legend(loc="best")
+    plt.axis('tight') 
+    if save_plot: plt.savefig('./bin/'+cache_prefix+'scores.png')
     plt.show()
+    plt.close()
 
-def plot_regularization_score_old(X, y, gs_best_lambda, lambda_values=None, num_cv=10):
-    start = time.time()
-    if lambda_values == None: lambda_values = np.logspace(-2, 2, 100)
-    param_range = 1.0/lambda_values
-    
-    model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False)
-    train_scores, test_scores = validation_curve(model, X, y, param_name='C', error_score='raise', cv=num_cv,
-                                                 param_range=param_range, scoring="roc_auc", n_jobs=1)
-    train_scores_mean = np.mean(train_scores, axis=1)
-    train_scores_std = np.std(train_scores, axis=1)
-    test_scores_mean = np.mean(test_scores, axis=1)
-    test_scores_std = np.std(test_scores, axis=1)
-    best_lambda = lambda_values[np.argmax(test_scores_mean)]
-    if gs_best_lambda == None: gs_best_lambda = best_lambda
-    
-    score_df = pd.DataFrame({'train_scores_mean':train_scores_mean, 'train_scores_std':train_scores_std,
-                             'test_scores_mean':test_scores_mean, 'test_scores_std':test_scores_std,
-                             'lambda_values':lambda_values,})
-    score_df['best_lambda'] = best_lambda
-    
-    fig, ax = plt.subplots()
-    plt.title("Logistic Regression: Cross-Validation Score")
-    plt.xlabel(r"$\lambda$")
-    plt.ylabel("Score")
-    plt.ylim(0.0, 1.1)
-    lw = 2
-
-    ax.semilogx(lambda_values, train_scores_mean, label="Training score",
-                 color="darkorange", lw=lw)
-    ax.fill_between(lambda_values, train_scores_mean - train_scores_std,
-                     train_scores_mean + train_scores_std, alpha=0.2,
-                     color="darkorange", lw=lw)
-    ax.semilogx(lambda_values, test_scores_mean, label="Cross-validation score",
-                 color="navy", lw=lw)
-    ax.fill_between(lambda_values, test_scores_mean - test_scores_std,
-                     test_scores_mean + test_scores_std, alpha=0.2,
-                     color="navy", lw=lw)
-    ax.axvline(gs_best_lambda, linestyle='--', color='k')
-    ax.text(x=gs_best_lambda, y=0.7, s='best lambda\n{:.2e}'.format(gs_best_lambda), color='k', fontsize=12,
-            #transform=ax.transAxes,
-            horizontalalignment='center', verticalalignment='center',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
-    plt.legend(loc="best")
-    plt.show()
-    
-    print("Time usage: %0.3fs" % (time.time() - start))
-    return score_df
-
-# def plot_regularization_score(grid_result):
-#     """
-#     This func plot the validation score changes as the function of lambda
-#     :param grid_result: the grid search result
-#     :return: a dataframe of grid search log
-#     """
-#     gs_df = pd.DataFrame(grid_result.cv_results_)
-#     train_df = gs_df[['param_C', 'mean_train_score', 'std_train_score']]
-#     test_df = gs_df[['param_C', 'mean_test_score', 'std_test_score']]
-#     train_df = train_df.rename(columns={"mean_train_score": "score", "std_train_score": "sd"})
-#     test_df = test_df.rename(columns={"mean_test_score": "score", "std_test_score": "sd"})
-#
-#     train_df['cv_split'] = 'train'
-#     test_df['cv_split'] = 'test'
-#     df = pd.concat([train_df, test_df], axis=0)
-#     df['param_Lambda'] = 1.0 / df['param_C']
-#
-#     best_lambda = 1.0 / grid_result.best_params_['C']
-#
-#     # plot the lambda and score
-#     sns.pointplot(data=df, x='param_Lambda', y='score', hue='cv_split', kind="point", dodge=True)
-#     plt.axvline(np.log(best_lambda), linestyle='--', color='k')
-#     #g.set_xticklabels(['{:.2e}'.format(x) for x in g.get_xticks()])
-#     # plt.legend([],[], frameon=False)
-#     plt.text(x=np.log(best_lambda)-10, y=0.8, s='best lambda\n{:.2e}'.format(best_lambda), color='k')
-#
-#     plt.ylim(0, 1.15)
-#     plt.xscale("log")
-#     #plt.xticks(rotation=45)
-#     plt.gca().invert_xaxis()
-#     plt.xlabel('Log(Lambda)')
-#     plt.ylabel('Score')
-#     plt.title('Logistic Regression: Cross-Validation Score')
-#     plt.axis('tight')
-#     plt.show()
-#
-#     return df
-
-def plot_prediction(subj_wide, test_data, features, DV, best_lasso):
-    test_data[[DV + '_lasso_pred']] = best_lasso.predict_proba(test_data[features])[:, 1]
-    test_data['threshold'] = subj_wide['best_model1'].mean()
-    test_data = test_data.sort_values(by=['best_model1'])
-
-    plt.plot(test_data['HCPID'], test_data[DV], 'b^', label='observed')
-    plt.plot(test_data['HCPID'], test_data[DV + '_lasso_pred'], 'rx', label='lasso_pred')
-    plt.plot(test_data['HCPID'], test_data['threshold'], '-', label='thresh')
-
-    plt.xlabel('subID')
-    plt.ylabel(DV)
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+def plot_prediction(subj_wide, test_data, features, DV, best_lasso, save_plot):
+	test_data[[DV + '_lasso_pred']] = best_lasso.predict_proba(test_data[features])[:, 1]
+	test_data['threshold'] = subj_wide['best_model1'].mean()
+	test_data = test_data.sort_values(by=['best_model1'])
+	
+	# plot
+	plt.plot(test_data['HCPID'], test_data[DV], 'b^', label='observed')
+	plt.plot(test_data['HCPID'], test_data[DV + '_lasso_pred'], 'rx', label='lasso_pred')
+	plt.plot(test_data['HCPID'], test_data['threshold'], '-', label='thresh')
+	
+	plt.xlabel('subID')
+	plt.ylabel(DV)
+	plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.1)
+	plt.show()
+	plt.close()
 
 
-def plot_prediction_loo(pred_data, save=False, threshold=0.5, drop_dup=False):
+def plot_prediction_loo(pred_data, threshold=0.5, drop_dup=False, save_plot=False, cache_prefix='r1s1_'):
     
     if drop_dup:
         x_ax = 'HCPID'
@@ -687,7 +592,8 @@ def plot_prediction_loo(pred_data, save=False, threshold=0.5, drop_dup=False):
     pred_data = pred_data.reset_index()
     pred_data['predcorrect'] = np.where(pred_data['ytrue'] == pred_data['yhat'], 'Logistic Model: Correct', 'Logistic Model: Incorrect')
 
-    fig, ax = plt.subplots(figsize=(15,10))
+	# plot
+    fig, ax = plt.subplots(figsize=(15,12))
 
     sns.scatterplot(data=pred_data, x=x_ax, y="ytrue", marker="s", alpha=0.9, s=250)
     sns.scatterplot(data=pred_data, x=x_ax, y="yprob", s=250, hue='predcorrect', style='predcorrect', markers=['o', 'X'], palette="Set2")
@@ -695,34 +601,16 @@ def plot_prediction_loo(pred_data, save=False, threshold=0.5, drop_dup=False):
 
     plt.xlabel('Subjects')
     plt.ylabel('Prediction(Probability)')
+    plt.title('Logistic Regression: \nPrediction Performance (Leave-One-Out)')
     plt.tick_params(labelsize=x_labsize)
     plt.xticks(rotation=30)
     plt.legend(title="", bbox_to_anchor=(0.01, 0), borderaxespad=0, fontsize=20,
                loc='lower left',
-               labels=['Threshold', 'ACT-R Model Identification', 'Logistic Model Prediction', 'Incorrect Prediction', 'Correct Prediction'])
-    if save: plt.savefig('./bin/loo_pred.png')
+               labels=['Threshold', 'ACT-R Model Identification', 'Logistic Model Prediction', 'Correct Prediction', 'Inorrect Prediction'])
+    
+    if save_plot: plt.savefig('./bin/'+cache_prefix+'prediction.png')
     plt.show()
-
-# def plot_prediction_loo(all_ytrue, all_yhat, all_yprob, threshold=0.5):
-#
-#     all_ytrue2 = [i[0] for i in all_ytrue]
-#     all_yhat2 = [i[0] for i in all_yhat]
-#     all_yprob2 = [i[0] for i in all_yprob]
-#     pred_data2 = pd.DataFrame({'y_true':all_ytrue2, 'y_prob':all_yprob2, 'y_hat':all_yhat2}, dtype='float').rename_axis(columns='index').reset_index()
-#     pred_data2['pred_corr'] = pred_data2['y_true'] == pred_data2['y_hat']
-#
-#     sns.scatterplot(data=pred_data2, x='index', y="y_true")
-#     fig = sns.scatterplot(data=pred_data2, x='index', y="y_prob", hue = 'pred_corr', marker = 'x')
-#     plt.axhline(y=threshold, color='black', linestyle='-.', label='threshold')
-#
-#     plt.xlabel('subj')
-#     plt.ylabel('prediction')
-#
-#     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
-#
-#     plt.show()
-
-
+    plt.close()
 
     
 ############### BRAIN CONNECTIONS ###############
@@ -788,14 +676,15 @@ def concat_wbeta(power2011, NOI, beta_df, subj_mat, w_mat, subj_mean_mat):
     res = roi_df.merge(beta_df, on = 'connID').merge(subj_mean_df, on = 'connID').merge(w_df, on = 'connID')
     return res
 
-def plot_brain_connections(mat, power_coords, save=False, mat_name='beta_mat', thre='99.9%'):
+def plot_brain_connections(mat, power_coords, mat_name='beta_mat', thre='99.9%', save_plot=False, cache_prefix='r1s1_'):
     if mat_name=='beta_mat':
         tit = 'Beta'
     elif mat_name == 'wcorr_mat':
         tit = 'Weighted Connectivity'
     else:
         tit = 'Unknown'
-    # create chart
+    
+    # plot
     sns.set_style('white')
     fig = plt.figure(figsize=(15,5))
     ax = fig.add_subplot(111)
@@ -809,5 +698,6 @@ def plot_brain_connections(mat, power_coords, save=False, mat_name='beta_mat', t
                              node_size=0, # size 264
                              #alpha=.8,
                              title='Group analysis: ' + tit)
-    if save: plt.savefig('./bin/'+mat_name+thre+'.png')
+    if save_plot: plt.savefig('./bin/'+cache_prefix+mat_name+thre+'.png')
     plt.show()
+    plt.close()
