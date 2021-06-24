@@ -387,7 +387,7 @@ def plot_hyperparam(results, save_path=False):
     scoring = {'Accuracy': 'accuracy', 'AUC': 'roc_auc', 'Log_loss': 'neg_log_loss'}
     param_grid = {'C': 1/np.logspace(-1, 3, 100)}
     
-    plt.figure(figsize=(5, 5))
+    plt.figure(figsize=(10, 6))
     plt.title("GridSearchCV evaluating using multiple scorers simultaneously",fontsize=16)
     
     plt.xlabel("Inverse of regularization strength: C")
@@ -395,11 +395,11 @@ def plot_hyperparam(results, save_path=False):
     plt.grid()
     
     ax = plt.axes()
-    ax.set_xlim(param_grid['C'].min()-1, param_grid['C'].max()+1) 
-    ax.set_ylim(0, 1)
+    ax.set_xlim(param_grid['C'].min(), param_grid['C'].max()) 
+    #ax.set_ylim(0, 1.2)
     
     # Get the regular numpy array from the MaskedArray
-    X_axis = np.array(results['param_C'].data, dtype=float)
+    X_axis = np.array(results['param_C'], dtype=float)
     
     for scorer, color in zip(list(scoring.keys()), ['g', 'k', 'b']): 
         for sample, style in (('train', '--'), ('test', '-')):
@@ -412,7 +412,7 @@ def plot_hyperparam(results, save_path=False):
                     alpha=1 if sample == 'test' else 0.7,
                     label="%s (%s)" % (scorer, sample))
         
-        best_index = np.nonzero(results['rank_test_%s' % scorer] == 1)[0][0]
+        best_index = np.nonzero((results['rank_test_%s' % scorer] == 1).values)[0][0]
         best_score = -results['mean_test_%s' % scorer][best_index] if scoring[scorer]=='neg_log_loss' else results['mean_test_%s' % scorer][best_index]
         
         # Plot a dotted vertical line at the best score for that scorer marked by x
@@ -818,3 +818,4 @@ def plot_brain_connections(mat, power_coords, mat_name='beta_mat', thre='99.9%',
     if save_plot: plt.savefig('./bin/'+cache_prefix+mat_name+thre+'.png')
     plt.show()
     plt.close()
+

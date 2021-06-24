@@ -69,6 +69,7 @@ class LassoAnalysis:
 		
 		
 	def loading(self, task_dir, ses_dir, fname='raw_pcorr.txt'):
+		assert(fname in ['raw_corr_pearson.txt', 'raw_pcorr.txt', 'mr_corr_pearson.txt', 'mr_corr_spearman.txt', 'mr_pcorr.txt', 'gdmd_corr.csv'])
 		"""load model data, subject matrix, and power parcellation labels"""
 		print('Loading  ... \n\t{}\n\t{}\n\t{}\n'.format(task_dir, ses_dir, fname))
 
@@ -82,15 +83,17 @@ class LassoAnalysis:
 		# mr_corr_spearman.txt
 		# mr_pcorr.txt
 
-		subj_dat=load_subj(model_dat, CORR_DIR='./connectivity_matrix', TASK_DIR=task_dir,
-		 SES_DIR=ses_dir, corr_fname=fname, znorm=True, warn=False)
+		if fname=='gdmd_corr.csv':
+			dmd_corr_df=pd.read_csv('./dmd_results/{}_{}_{}'.format(task_dir.strip('/'), ses_dir.strip('/'), fname))
+			subj_dat=pd.merge(left=model_dat[['HCPID', 'best_model1']], right=dmd_corr_df, how='right', on='HCPID')
+		else:
+			subj_dat=load_subj(model_dat, CORR_DIR='./connectivity_matrix', TASK_DIR=task_dir,
+			SES_DIR=ses_dir, corr_fname=fname, znorm=True, warn=False)
 		
 		self.power2011=power2011
 		self.model_dat=model_dat
 		self.subj_dat=subj_dat	
 
-		
-	
 	def preprocessing(self):
 		# upsampling -> downsampling
 		#subj_balanced=balance_training_sample(self.subj_dat, self.DV, method='up')	
@@ -300,7 +303,7 @@ def runLasso():
 def runComparison():
 	
 	comparison_dict={'task_type':['/REST1/'], 'ses_type':['/ses-01/'],
-						'input_type':['raw_pcorr.txt', 'mr_corr_pearson'], 
+						'input_type':['raw_pcorr.txt', 'mr_corr_pearson.txt', 'g_dmdcorr.csv'], 
 						'balance_type':['up', 'down', 'none', 'balanced'], 
 						'model_type':[LogisticRegression(penalty='l1', solver='saga', fit_intercept=False, max_iter=10000, tol=0.01)]}
 	keys, values = zip(*comparison_dict.items())
@@ -308,7 +311,6 @@ def runComparison():
 
 	#comparison_df = pd.DataFrame(comparison_list)
 	#comparison_df.to_csv('./bin/comparison_log.csv')
-
 	
 	for i in comparison_list:
 		c=comparison_list[i] # curr list
@@ -327,12 +329,13 @@ def runComparison():
 							model_type=c['model_type'].__class__.__name__))
 		# hyper tunning
 		grid_search = tune_hyperparam(A.X, A.y, cv=20)
-		pd.DataFrame(grid_search.cv_results_).to_csv('./bin/'+A.cache_prefix+'hyperparam_score.csv')
-		plot_hyperparam(grid_search.cv_results_, save_path='./bin/'+A.cache_prefix+'hyperparam_score.png')
+		grid_search_results = pd.DataFrame(grid_search.cv_results_)
+		grid_search_results.to_csv('./bin/'+A.cache_prefix+'hyperparam_score.csv')
+		plot_hyperparam(grid_search_results, save_path='./bin/'+A.cache_prefix+'hyperparam_score.png')
 
 		# evaluate model
 		A.best_model = grid_search.best_estimator_
-		eval_scores = evaluate_model(A.best_model, A.X, A.y, cv=100)
+		eval_scores = evaluate_model(A.best_model, A.X, A.y, cv=A.y.value_counts()[0])
 		eval_scores.to_csv('./bin/'+A.cache_prefix+'evaluation_score.csv')
 
 		# log 
@@ -341,8 +344,7 @@ def runComparison():
 		c['evaluation_accuracy'] = eval_scores['accuracy'].mean()
 		c['evaluation_auc'] = eval_scores['roc_auc'].mean()
 		pd.DataFrame.from_dict(c, orient='index').T.to_csv('./bin/comparison_log.csv', mode='a', header=not(i))
-
-	return
+ 
 def main():
 	runLasso()
 
