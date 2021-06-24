@@ -37,6 +37,10 @@ from sklearn.linear_model import LassoCV
 from sklearn.linear_model import RidgeCV
 from sklearn.linear_model import lasso_path, enet_path
 from sklearn.svm import l1_min_c
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn import svm
+from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import LeaveOneOut
@@ -45,6 +49,8 @@ from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import cross_val_predict
 from sklearn.model_selection import validation_curve
 from sklearn.feature_extraction import DictVectorizer
+from sklearn.feature_selection import RFE
+from sklearn.feature_selection import RFECV
 from sklearn.utils import resample
 from sklearn.experimental import enable_halving_search_cv
 from sklearn.model_selection import HalvingGridSearchCV
@@ -268,38 +274,8 @@ def random_grid_search_lasso(X, y, lambda_values=None, num_cv=20, plot_path=Fals
     
     return grid_result
 
-def halving_search_lasso(X, y, lambda_values=None, plot_path=False):
-    start = time.time()
 
-    # define model
-    model = LogisticRegression(penalty='l1', solver='saga', fit_intercept=False)
-
-    # define cross-validation method
-    # cv = LeaveOneOut()
-
-    # define parameter space
-    space = dict()
-    # space['solver'] = ['newton-cg', 'lbfgs', 'liblinear']
-    # space['penalty'] = ['l1']
-    if lambda_values == None: lambda_values=1.0/np.logspace(-3, 3, 100)
-    space['C'] = 1.0 / lambda_values
-
-    # define search
-    grid_search = HalvingGridSearchCV(estimator=model, param_grid=space, factor=2, return_train_score=True)
-
-    # execute search
-    grid_result = grid_search.fit(X, y)
-
-    # summarize result
-    print('Best Score: %s' % grid_result.best_score_)
-    print('Best Hyperparameters: %s' % grid_result.best_params_)
-    print("Time usage: %0.3fs" % (time.time() - start))
-
-    #if plot_path: plot_regularization_path(train_data, features, DV, lambda_values, 1.0 / grid_result.best_params_['C'])
-
-    return grid_result
-
-def balance_training_sample(subj_dat, DV):
+def balance_training_sample(subj_dat, DV, method='up'):
     num_class0 = subj_dat[DV].value_counts()[0]
     num_class1 = subj_dat[DV].value_counts()[1]
 
@@ -314,22 +290,22 @@ def balance_training_sample(subj_dat, DV):
         majority_count = num_class1
         minority_count = num_class0
 	
-    '''
-    # upsample minority class
-    subj_minority_upsampled = resample(subj_minority, replace=True, n_samples=majority_count, random_state=1)
-    
-    # combine majorrity class with upsampled miniority class
-    subj_upsampled = pd.concat([subj_majority, subj_minority_upsampled])
-    subj_upsampled = subj_upsampled.reset_index()
-    '''
-    
-    # downsample majority class
-    subj_majority_downsampled = subj_majority.sample(n=minority_count, replace=False)
-    
-    # combine minority with downsampled majority class
-    subj_downsampled = pd.concat([subj_minority, subj_majority_downsampled])
-    subj_downsampled = subj_downsampled.reset_index()
-    return subj_downsampled
+    if method=='up':
+        # upsample minority class
+        subj_minority_upsampled = resample(subj_minority, replace=True, n_samples=majority_count, random_state=1)
+        
+        # combine majorrity class with upsampled miniority class
+        subj_upsampled = pd.concat([subj_majority, subj_minority_upsampled])
+        subj_upsampled = subj_upsampled.reset_index()
+        return subj_upsampled
+    else:
+        # downsample majority class
+        subj_majority_downsampled = subj_majority.sample(n=minority_count, replace=False)
+        
+        # combine minority with downsampled majority class
+        subj_downsampled = pd.concat([subj_minority, subj_majority_downsampled])
+        subj_downsampled = subj_downsampled.reset_index()
+        return subj_downsampled
 
 def loocv_train_test_split_ith(subj_dat, i):
     assert i < len(subj_dat)
@@ -391,7 +367,147 @@ def cv_logistic_retrain(subj_censored, features, DV, best_c, num_cv):
     print("Time Usage", round(time.time() - start, 4))
     return all_ytrue, all_yhat, all_yprob, cross_val_scores
 
-############### VISUALIE LOG MODEL ###############
+
+
+############### MODEL COMPARE ###############
+def tune_hyperparam(X, y, cv=20):
+    model = LogisticRegression(fit_intercept=False, penalty='l1', max_iter=10000, warm_start=True, solver='liblinear')
+    param_grid = {'C': 1/np.logspace(-3, 3, 100)}
+    scoring = {'Accuracy': 'accuracy', 'AUC': 'roc_auc', 'Log_loss': 'neg_log_loss'}
+    gs = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, cv=cv, refit='AUC', return_train_score=True)
+    gs.fit(X, y)
+    print('='*20)
+    print("best params: " + str(gs.best_estimator_))
+    print("best params: " + str(gs.best_params_))
+    print('best score:', gs.best_score_)
+    print('='*20)
+    return gs
+
+def plot_hyperparam(results, save_path=False):
+    scoring = {'Accuracy': 'accuracy', 'AUC': 'roc_auc', 'Log_loss': 'neg_log_loss'}
+    param_grid = {'C': 1/np.logspace(-1, 3, 100)}
+    
+    plt.figure(figsize=(5, 5))
+    plt.title("GridSearchCV evaluating using multiple scorers simultaneously",fontsize=16)
+    
+    plt.xlabel("Inverse of regularization strength: C")
+    plt.ylabel("Score")
+    plt.grid()
+    
+    ax = plt.axes()
+    ax.set_xlim(param_grid['C'].min()-1, param_grid['C'].max()+1) 
+    ax.set_ylim(0, 1)
+    
+    # Get the regular numpy array from the MaskedArray
+    X_axis = np.array(results['param_C'].data, dtype=float)
+    
+    for scorer, color in zip(list(scoring.keys()), ['g', 'k', 'b']): 
+        for sample, style in (('train', '--'), ('test', '-')):
+            sample_score_mean = -results['mean_%s_%s' % (sample, scorer)] if scoring[scorer]=='neg_log_loss' else results['mean_%s_%s' % (sample, scorer)]
+            sample_score_std = results['std_%s_%s' % (sample, scorer)]
+            ax.fill_between(X_axis, sample_score_mean - sample_score_std,
+                            sample_score_mean + sample_score_std,
+                            alpha=0.1 if sample == 'test' else 0, color=color)
+            ax.plot(X_axis, sample_score_mean, style, color=color,
+                    alpha=1 if sample == 'test' else 0.7,
+                    label="%s (%s)" % (scorer, sample))
+        
+        best_index = np.nonzero(results['rank_test_%s' % scorer] == 1)[0][0]
+        best_score = -results['mean_test_%s' % scorer][best_index] if scoring[scorer]=='neg_log_loss' else results['mean_test_%s' % scorer][best_index]
+        
+        # Plot a dotted vertical line at the best score for that scorer marked by x
+        ax.plot([X_axis[best_index], ] * 2, [0, best_score],
+                linestyle='-.', color=color, marker='x', markeredgewidth=3, ms=8)
+        
+        # Annotate the best score for that scorer
+        ax.annotate("%0.2f" % best_score,
+                    (X_axis[best_index], best_score + 0.005))
+        
+    plt.legend(loc="best")
+    plt.grid('off')
+    if save_path: plt.savefig(save_path)
+    else: plt.show()
+        
+def crossvalscore(model, X, y):
+    scores_accuracy = cross_val_score(model, X, y, cv=10, scoring='accuracy', n_jobs=-1)
+    scores_balanced_accuracy = cross_val_score(model, X, y, cv=10, scoring='balanced_accuracy', n_jobs=-1)
+    scores_f1 = cross_val_score(model, X, y, cv=10, scoring='f1', n_jobs=-1)
+    scores_auc = cross_val_score(model, X, y, cv=10, scoring='roc_auc', n_jobs=-1)
+    scores_log_loss = cross_val_score(model, X, y, cv=10, scoring='neg_log_loss', n_jobs=-1)
+
+    rand_scores = pd.DataFrame({
+        'cv':range(0,10),
+        'accuracy score':scores_accuracy, 
+        'balanced accuracy score':scores_balanced_accuracy, 
+        'f1 score':scores_f1, 
+        'roc_auc score':scores_auc,
+        'log loss score':scores_log_loss
+        })
+    
+    print('Accuracy :',rand_scores['accuracy score'].mean())
+    print('Balanced accuracy :',rand_scores['balanced accuracy score'].mean())
+    print('f1 :',rand_scores['f1 score'].mean())
+    print('ROC_AUC :',rand_scores['roc_auc score'].mean())
+    print('Log Loss :',rand_scores['log loss score'].mean())
+    return rand_scores.sort_values(by='roc_auc score',ascending=False)
+
+def feature_selection(model, X, y):
+    rfe = RFE(model, 8)
+    rfe = rfe.fit(X, y)
+
+    rfecv = RFECV(estimator=model, step=1, cv=10, scoring='accuracy')
+    rfecv.fit(X, y)
+
+def evaluate_model(model, X, y, cv=20):
+    scores_accuracy = cross_val_score(model, X, y, cv=cv, scoring='accuracy')
+    scores_auc = cross_val_score(model, X, y, cv=cv, scoring='roc_auc')
+
+    print('K-fold cross-validation results:')
+    print(model.__class__.__name__+" average accuracy is %2.3f" % scores_accuracy.mean())
+    print(model.__class__.__name__+" average auc is %2.3f" % scores_auc.mean())
+
+    rand_scores = pd.DataFrame({
+        'cv':range(0,cv),
+        'accuracy':scores_accuracy, 
+        'roc_auc':scores_auc,
+        })
+    return rand_scores.sort_values(by='roc_auc',ascending=False)
+
+def random_forest_tune(X, y):
+    rf_model = RandomForestClassifier(random_state=0)
+    random_grid={'bootstrap': [True, False],
+                'max_depth': [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, None],
+                'max_features': ['auto', 'sqrt'],
+                'min_samples_leaf': [1, 2, 4],
+                'min_samples_split': [2, 5, 10],
+                'n_estimators': [int(x) for x in np.linspace(start = 200, stop = 2000, num = 10)]}
+    rf_random = RandomizedSearchCV(estimator = rf_model, param_distributions = random_grid, n_iter = 100, cv = 3, verbose=2, random_state=42, n_jobs = -1)
+    print('best parameters:', rf_random.best_params_)
+    param_grid={'bootstrap': True,
+                'max_depth':[6, 8, 10, 12, 14, 16],
+                'max_features': 'sqrt', 
+                'min_samples_leaf': 2,
+                'min_samples_split': 10,
+    }
+    return rf_model
+
+def decision_tree(X, y):
+    dt_model = DecisionTreeClassifier(random_state=0)
+    dt_model.fit(X, y)
+    return dt_model
+
+def svm(X, y):
+    svm_model = svm.SVC()
+    svm_model.fit(X, y)
+    return svm_model
+
+def neural_network(X, y):
+    nn_model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=1)
+    nn_model.fit(X, y)
+    return nn_model
+
+
+############### VISUALIZE LOG MODEL ###############
 def print_coefficients(coef, features):
     """
     This function takes in a model column and a features column.
@@ -686,7 +802,7 @@ def plot_brain_connections(mat, power_coords, mat_name='beta_mat', thre='99.9%',
     
     # plot
     sns.set_style('white')
-    fig = plt.figure(figsize=(15,5))
+    fig = plt.figure(figsize=(10,3))
     ax = fig.add_subplot(111)
     ax.axis("off")
 
@@ -697,7 +813,8 @@ def plot_brain_connections(mat, power_coords, mat_name='beta_mat', thre='99.9%',
                              colorbar=True,
                              node_size=0, # size 264
                              #alpha=.8,
-                             title='Group analysis: ' + tit)
+                             #title='Group analysis: ' + tit,
+                             edge_kwargs = {'lw':8})
     if save_plot: plt.savefig('./bin/'+cache_prefix+mat_name+thre+'.png')
     plt.show()
     plt.close()

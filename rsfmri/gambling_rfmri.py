@@ -5,8 +5,9 @@
 #
 # Bugs: 
 #
-# TODO: downsampling, use mode as input
-# 
+# TODO: 5.20 downsampling 
+# 		6.8 fix the downsampling issue
+# 			try mode as inputs
 # Requirement: 
 #
 #
@@ -14,25 +15,29 @@
 ###################### ####################### #######################
 
 # Futures
-from __future__ import print_function 
+from __future__ import print_function
 import warnings
+
+from scipy.stats.stats import mode
 warnings.filterwarnings('ignore')
 
 # Built-in/Generic Imports
 import os, glob
 import sys 
+import itertools 
 import pandas as pd  
 import matplotlib.pyplot as plt
 import seaborn as sns
 from lasso_func import *
+from dmd_func import *
 
 sns.set_style("whitegrid")
 
 class LassoAnalysis:
-	def __init__(self, task_dir='/REST1/', ses_dir='/ses-01/', corr_fname='mr_pcorr.txt'):
+	def __init__(self, task_dir='/REST1/', ses_dir='/ses-01/'):
 		self.power2011=None
 		self.model_dat=None
-		self.subj_mat=None
+		self.subj_dat=None
 		
 		# L1 outputs
 		self.best_lambda=None
@@ -57,46 +62,76 @@ class LassoAnalysis:
 		"Salience",
 		"Subcortical",
 		"Cerebellar",
-		"Dorsal attention"]
-		
-		# load
-		self.loading(task_dir, ses_dir, corr_fname)
-		# preprocess
-		self.preprocessing()	
+		"Dorsal attention"]	
+
+		# define model
+		#self.model=LogisticRegression(penalty='l1', solver='saga', fit_intercept=False, max_iter=10000, tol=0.01)
 		
 		
-	def loading(self, task_dir, ses_dir, corr_fname):
+	def loading(self, task_dir, ses_dir, fname='raw_pcorr.txt'):
 		"""load model data, subject matrix, and power parcellation labels"""
+		print('Loading  ... \n\t{}\n\t{}\n\t{}\n'.format(task_dir, ses_dir, fname))
+
 		power2011=pd.read_csv('../bin/power_2011.csv', usecols=["ROI", "X", "Y", "Z", "Network", "Color", "NetworkName"]) 
 		model_dat=pd.read_csv('../actr-models/model_output/MODELLogLikelihood.csv', index_col=0)
 		model_dat['best_model1'] = np.where(model_dat['best_model']== 'm1', 1, 0)
-		#subj_mat=load_subj(model_dat, task_dir, ses_dir, corr_fname, warn=False)
-		subj_mat=load_subj(model_dat, CORR_DIR='./connectivity_matrix', TASK_DIR=task_dir,
-		 SES_DIR=ses_dir, corr_fname='mr_pcorr.txt', znorm=True, warn=False)
+		
+		# raw_corr_pearson.txt
+		# raw_pcorr.txt
+		# mr_corr_pearson.txt
+		# mr_corr_spearman.txt
+		# mr_pcorr.txt
+
+		subj_dat=load_subj(model_dat, CORR_DIR='./connectivity_matrix', TASK_DIR=task_dir,
+		 SES_DIR=ses_dir, corr_fname=fname, znorm=True, warn=False)
 		
 		self.power2011=power2011
 		self.model_dat=model_dat
-		self.subj_mat=subj_mat		
-					
+		self.subj_dat=subj_dat	
+
+		
+	
 	def preprocessing(self):
 		# upsampling -> downsampling
-		subj_balanced=balance_training_sample(self.subj_mat, self.DV)	
+		#subj_balanced=balance_training_sample(self.subj_dat, self.DV, method='up')	
 		
-		# only keep half of matrix		
+		# only keep half of predictors	(69,696/2)	
 		censor=get_vector_df(self.power2011, self.NOI)  
-		subj_censored=get_subj_df(subj_balanced, censor)	
+		subj_censored=get_subj_df(self.subj_dat, censor)	
 
 		# feastures
 		features = list(subj_censored.columns)[2:]
 		
-		self.subj_balanced=subj_balanced
+		#self.subj_balanced=subj_balanced
 		self.subj_censored=subj_censored 
 		self.features = features
+
 	
 	def set_cache_prefix(self, prefix_str):
 		self.cache_prefix=prefix_str
+
+	def set_balancing_type(self, type):
+		assert type in ['up', 'down', 'none', 'balanced']
 		
-	def hypertuning_lambda(self, load_lambda=None, method='standard_gs', lambda_range = 1.0/np.logspace(-3, 3, 100)):
+		if type=='up':
+			balanced = balance_training_sample(self.subj_censored, self.DV, method='up')
+			self.X=balanced[self.features]
+			self.y=balanced[self.DV]
+		elif type=='down':
+			balanced = balance_training_sample(self.subj_censored, self.DV, method='down')	
+			self.X=balanced[self.features]
+			self.y=balanced[self.DV]
+		elif type=='balanced':
+			self.model.set_params(class_weight='balanced')
+			self.X=self.subj_censored[self.features]
+			self.y=self.subj_censored[self.DV]	
+		else:
+			self.model.set_params(class_weight=None)
+			self.X=self.subj_censored[self.features]
+			self.y=self.subj_censored[self.DV]	
+		
+	def hypertuning_lambda(self, load_lambda=None, method='standard_gs'):
+		#lambda_range = 1.0/np.logspace(-3, 3, 100)
 		if load_lambda!=None:
 			self.best_lambda=load_lambda
 			print('Loading best lambda', self.best_lambda)
@@ -119,7 +154,7 @@ class LassoAnalysis:
 			self.scores=scores
 			print('Loading regularization results')
 		else:
-			coefs = save_regularization_path(self.subj_censored[self.features], self.subj_censored[self.DV], lambda_values = 1.0/np.logspace(-2, 2, 10), best_lambda=self.best_lambda)
+			coefs = save_regularization_path(self.subj_censored[self.features], self.subj_censored[self.DV], lambda_values = 1.0/np.logspace(-3, 3, 50), best_lambda=self.best_lambda)
 			coefs = pd.DataFrame(coefs)
 			scores = save_regularization_score(self.subj_censored[self.features], self.subj_censored[self.DV], 1.0/self.best_lambda, num_cv=20)
 			
@@ -154,7 +189,7 @@ class LassoAnalysis:
 		
 		# average corr matrix across subj
 		# calcualte beta * averaged PR   
-		subj_mean_mat=average_corr(self.subj_mat, self.DV)
+		subj_mean_mat=average_corr(self.subj_dat, self.DV)
 		subj_mean_mat=pd.DataFrame(subj_mean_mat, columns=beta_mat.columns)
 		w_mat=beta_mat * subj_mean_mat
 		
@@ -186,19 +221,47 @@ class LassoAnalysis:
 		
 	def plot_brain_connectivity(self, save_plot=False):
 		plt.rcParams['lines.linewidth'] = 20
-		plt.rcParams['xtick.labelsize'] = 30
-		plt.rcParams['ytick.labelsize'] = 30
+		plt.rcParams['xtick.labelsize'] = 20
+		plt.rcParams['ytick.labelsize'] = 20
 		plot_brain_connections(self.w_mat, self.power_coords, mat_name='beta_mat', thre='99.9%', save_plot=save_plot, cache_prefix=self.cache_prefix)
 
+	def plot_heatmaps(self, save_plot=False):
+		sns.heatmap(self.beta_mat, center=0, robust=True, xticklabels=False, yticklabels=False, cmap='coolwarm')
+		plt.title('Beta Matrix')
+		if save_plot: plt.savefig('./bin/'+self.cache_prefix+'beta_mat.png')
+		plt.show()
+		plt.close()
+
+		sns.heatmap(self.subj_mean_mat, center=0, vmax=1, vmin=-1, xticklabels=False, yticklabels=False,  cmap='coolwarm')
+		plt.title('A Matrix')
+		if save_plot: plt.savefig('./bin/'+self.cache_prefix+'A_mat.png')
+		plt.show()
+		plt.close()
+
+		sns.heatmap(self.w_mat, robust=True, xticklabels=False, yticklabels=False, cmap='coolwarm')
+		plt.title('W Matrix')
+		if save_plot: plt.savefig('./bin/'+self.cache_prefix+'W_mat.png')
+		plt.show()
+		plt.close()
+
+	
 def loadLasso():	
-	#r1s1: 0.93260334688322
+	#r1s1: lambda=6.73415065775082, score=0.936363636363636
 	#r1s2: 1.232846739442066
 	#r2s1: 0.93260334688322
-	R1S1Lasso=LassoAnalysis(task_dir='/REST1/', ses_dir='/ses-01/')
+
+	# init
+	R1S1Lasso=LassoAnalysis()
+	R1S1Lasso.loading(task_dir='/REST1/', ses_dir='/ses-01/')
+	R1S1Lasso.preprocessing()
 	R1S1Lasso.set_cache_prefix('r1s1_')
-	R1S1Lasso.hypertuning_lambda(load_lambda=0.93260334688322)
+
+	# find lambda
+	R1S1Lasso.hypertuning_lambda(load_lambda=6.73415065775082)
 	R1S1Lasso.regularization_performance(load_data=True)
 	R1S1Lasso.logistic_model_performance(load_data=True)
+
+	# calculate B, A, W, matrix
 	R1S1Lasso.logistic_model_retraining()
 	R1S1Lasso.calc_weighted_corr()
 	
@@ -210,11 +273,20 @@ def loadLasso():
 	return R1S1Lasso
 
 def runLasso():	
-	R1S1Lasso=LassoAnalysis(task_dir='/REST1/', ses_dir='/ses-01/')
+	# init
+	R1S1Lasso=LassoAnalysis()
+	R1S1Lasso.loading(task_dir='/REST1/', ses_dir='/ses-01/')
+	R1S1Lasso.preprocessing()
 	R1S1Lasso.set_cache_prefix('r1s1_')
+
+	# find optimal lambda
 	R1S1Lasso.hypertuning_lambda()
 	R1S1Lasso.regularization_performance()
+
+	# evaluate model
 	R1S1Lasso.logistic_model_performance()
+
+	# calculate B, A W matrix
 	R1S1Lasso.logistic_model_retraining()
 	R1S1Lasso.calc_weighted_corr()
 	
@@ -223,8 +295,54 @@ def runLasso():
 	R1S1Lasso.plot_performance(save_plot=True)
 	R1S1Lasso.plot_brain_connectivity(save_plot=True)
 	
-	return R1S2Lasso
+	return R1S1Lasso
 
+def runComparison():
+	
+	comparison_dict={'task_type':['/REST1/'], 'ses_type':['/ses-01/'],
+						'input_type':['raw_pcorr.txt', 'mr_corr_pearson'], 
+						'balance_type':['up', 'down', 'none', 'balanced'], 
+						'model_type':[LogisticRegression(penalty='l1', solver='saga', fit_intercept=False, max_iter=10000, tol=0.01)]}
+	keys, values = zip(*comparison_dict.items())
+	comparison_list = [dict(zip(keys, v)) for v in itertools.product(*values)]
+
+	#comparison_df = pd.DataFrame(comparison_list)
+	#comparison_df.to_csv('./bin/comparison_log.csv')
+
+	
+	for i in comparison_list:
+		c=comparison_list[i] # curr list
+
+		A=LassoAnalysis()
+		A.loading(task_dir=c['task_type'], ses_dir=c['ses_type'], fname=c['input_type'])
+		A.preprocessing()
+
+		A.model=c['model_type']
+		A.set_balancing_type(c['balance_type'])
+		A.set_cache_prefix('{task_type}_{ses_type}_{input_type}_{balance_type}_{model_type}_'.format(
+							task_type=c['task_type'].split('/')[1],
+							ses_type=c['ses_type'].split('/')[1],
+							input_type=c['input_type'].split('.')[0].split('_')[1],
+							balance_type=c['balance_type'],
+							model_type=c['model_type'].__class__.__name__))
+		# hyper tunning
+		grid_search = tune_hyperparam(A.X, A.y, cv=20)
+		pd.DataFrame(grid_search.cv_results_).to_csv('./bin/'+A.cache_prefix+'hyperparam_score.csv')
+		plot_hyperparam(grid_search.cv_results_, save_path='./bin/'+A.cache_prefix+'hyperparam_score.png')
+
+		# evaluate model
+		A.best_model = grid_search.best_estimator_
+		eval_scores = evaluate_model(A.best_model, A.X, A.y, cv=100)
+		eval_scores.to_csv('./bin/'+A.cache_prefix+'evaluation_score.csv')
+
+		# log 
+		c['gs_best_params_'] = grid_search.best_params_
+		c['gs_best_score_'] = grid_search.best_score_
+		c['evaluation_accuracy'] = eval_scores['accuracy'].mean()
+		c['evaluation_auc'] = eval_scores['roc_auc'].mean()
+		pd.DataFrame.from_dict(c, orient='index').T.to_csv('./bin/comparison_log.csv', mode='a', header=not(i))
+
+	return
 def main():
 	runLasso()
 
