@@ -84,7 +84,7 @@ class LassoAnalysis:
 		# mr_pcorr.txt
 
 		if fname=='gdmd_corr.csv':
-			dmd_corr_df=pd.read_csv('./dmd_results/{}_{}_{}'.format(task_dir.strip('/'), ses_dir.strip('/'), fname))
+			dmd_corr_df=pd.read_csv('./bin/{}_{}_{}'.format(task_dir.strip('/'), ses_dir.strip('/'), fname))
 			subj_dat=pd.merge(left=model_dat[['HCPID', 'best_model1']], right=dmd_corr_df, how='right', on='HCPID')
 		else:
 			subj_dat=load_subj(model_dat, CORR_DIR='./connectivity_matrix', TASK_DIR=task_dir,

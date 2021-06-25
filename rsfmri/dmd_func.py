@@ -528,7 +528,7 @@ def compute_dmd_corr(dmd_dir='./dmd_results/REST1/ses-01'):
         dmd_corr_list.append(subj_mode_corr_vec)
     dmd_corr_df = pd.DataFrame(dmd_corr_list, columns=lasso_func.vectorize_mat_name(range(1, 265), range(1,265)))
     dmd_corr_df['HCPID'] = [sub.split('-')[-1].split('.')[0]+'_fnca' for sub in dmd_subjs]
-    # dmd_corr_df.to_csv('./dmd_results/REST1_ses-01_g_dmd_corr.csv', index=False)
+    # dmd_corr_df.to_csv('./bin/REST1_ses-01_g_dmd_corr.csv', index=False)
     return dmd_corr_df
 
 
