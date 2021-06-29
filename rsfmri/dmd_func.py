@@ -404,30 +404,30 @@ def construct_y(T=[]):
     return times
 
 ###################### COMPUTE DMD #######################
-def save_all_dmd(connctivitymatrix_dir='./connectivity_matrix/REST1', dmd_dir='./dmd_results/REST1/ses-01'):
+def save_all_dmd(connctivitymatrix_dir='./connectivity_matrix', dmd_dir='./dmd_results', rest_dir='/REST1', ses_dir='/ses-01'):
     """
     """
     # create a dmd results dir
-    try: os.mkdir(dmd_dir)
+    try: os.mkdir(dmd_dir+rest_dir+ses_dir)
     except: pass
 
     # ieterate through all subjects
-    subj_dirs=glob.glob(connctivitymatrix_dir+'/sub-*')
+    subj_dirs=glob.glob(connctivitymatrix_dir+rest_dir+'/sub-*')
     subj_dirs.sort()
     for subj_dir in subj_dirs:
         subj_id=int(subj_dir.split('-')[-1])
 
         # check if already processed
-        if os.path.exists(dmd_dir+'/{:}.h5'.format('sub-'+str(subj_id))):
+        if os.path.exists(dmd_dir+'{:}{:}/{:}.h5'.format(rest_dir, ses_dir, 'sub-'+str(subj_id))):
             print('{:} Already processed! Moving on...'.format(subj_id))
             continue
 
         # load subject's time series data
-        subj_timeseries=pd.read_csv('{:}/ses-01/raw_timeseries.txt'.format(subj_dir)).T.values
+        subj_timeseries=pd.read_csv('{:}{:}/raw_timeseries.txt'.format(subj_dir, ses_dir)).T.values
         
         # compute single subject's dmd
         subj_dmd=compute_subj_dmd(subj_timeseries, subj_id)
-        save_dict_to_hdf5(subj_dmd, dmd_dir+'/{:}.h5'.format('sub-'+str(subj_id)))
+        save_dict_to_hdf5(subj_dmd, dmd_dir+'{:}{:}/{:}.h5'.format(rest_dir, ses_dir, 'sub-'+str(subj_id)))
     return
 
 def compute_subj_dmd(subj_timeseries, HCPID, nwindow=32, nslide=4, nmodes=8):
@@ -513,10 +513,9 @@ def load_all_dmd(dmd_dir='./dmd_results/REST1/ses-01', mode_format='list'):
             dmd_df.append(pd.concat([rest_df, mode_df], axis=1))
     return pd.concat(dmd_df, axis=0)
 
-def compute_dmd_corr(dmd_dir='./dmd_results/REST1/ses-01'):
-    dmd_subjs=glob.glob(dmd_dir+'/sub-*.h5') # 178
+def compute_dmd_corr(dmd_dir='./dmd_results', rest_dir='/REST1', ses_dir='/ses-01'):
+    dmd_subjs=glob.glob(dmd_dir+rest_dir+ses_dir+'/sub-*.h5') # 178
     dmd_subjs.sort()
-
     dmd_corr_list=[]
     for sub in dmd_subjs:
         subj_dmd = load_dict_from_hdf5(sub)
@@ -528,7 +527,7 @@ def compute_dmd_corr(dmd_dir='./dmd_results/REST1/ses-01'):
         dmd_corr_list.append(subj_mode_corr_vec)
     dmd_corr_df = pd.DataFrame(dmd_corr_list, columns=lasso_func.vectorize_mat_name(range(1, 265), range(1,265)))
     dmd_corr_df['HCPID'] = [sub.split('-')[-1].split('.')[0]+'_fnca' for sub in dmd_subjs]
-    # dmd_corr_df.to_csv('./bin/REST1_ses-01_g_dmd_corr.csv', index=False)
+    #dmd_corr_df.to_csv('./bin{:}_{:}_g_dmdcorr.csv'.format(rest_dir, ses_dir.strip('/')), index=False)
     return dmd_corr_df
 
 

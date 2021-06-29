@@ -312,7 +312,7 @@ def runComparison():
 	#comparison_df = pd.DataFrame(comparison_list)
 	#comparison_df.to_csv('./bin/comparison_log.csv')
 	
-	for i in comparison_list:
+	for i in range(len(comparison_list)):
 		c=comparison_list[i] # curr list
 
 		A=LassoAnalysis()
