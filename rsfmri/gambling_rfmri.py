@@ -16,6 +16,7 @@
 
 # Futures
 from __future__ import print_function
+from random import randint
 import warnings
 
 from scipy.stats.stats import mode
@@ -69,7 +70,7 @@ class LassoAnalysis:
 		
 		
 	def loading(self, task_dir, ses_dir, fname='raw_pcorr.txt'):
-		assert(fname in ['raw_corr_pearson.txt', 'raw_pcorr.txt', 'mr_corr_pearson.txt', 'mr_corr_spearman.txt', 'mr_pcorr.txt', 'gdmd_corr.csv'])
+		assert(fname in ['raw_corr_pearson.txt', 'raw_pcorr.txt', 'mr_corr_pearson.txt', 'mr_corr_spearman.txt', 'mr_pcorr.txt', 'g_dmdcorr.csv'])
 		"""load model data, subject matrix, and power parcellation labels"""
 		print('Loading  ... \n\t{}\n\t{}\n\t{}\n'.format(task_dir, ses_dir, fname))
 
@@ -83,7 +84,7 @@ class LassoAnalysis:
 		# mr_corr_spearman.txt
 		# mr_pcorr.txt
 
-		if fname=='gdmd_corr.csv':
+		if fname=='g_dmdcorr.csv':
 			dmd_corr_df=pd.read_csv('./bin/{}_{}_{}'.format(task_dir.strip('/'), ses_dir.strip('/'), fname))
 			subj_dat=pd.merge(left=model_dat[['HCPID', 'best_model1']], right=dmd_corr_df, how='right', on='HCPID')
 		else:
@@ -109,6 +110,21 @@ class LassoAnalysis:
 		self.subj_censored=subj_censored 
 		self.features = features
 
+	def load_param_grid(self):
+		param_grid={}
+		if self.model.__class__.__name__=='LogisticRegression':
+			param_grid['C']=1/np.logspace(-3, 3, 100)
+		elif self.model.__class__.__name__=='LinearSVC':
+			param_grid['C']=1/np.logspace(-3, 3, 100)
+		elif self.model.__class__.__name__=='RandomForestClassifier':
+			param_grid={
+				'max_depth':list(range(1,15))}
+		elif self.model.__class__.__name__=='DecisionTreeClassifier':
+			param_grid = {
+				'max_depth':list(range(1,15))}
+		else:
+			print('Wrong Model Name!')
+		self.param_grid = param_grid
 	
 	def set_cache_prefix(self, prefix_str):
 		self.cache_prefix=prefix_str
@@ -305,7 +321,10 @@ def runComparison():
 	comparison_dict={'task_type':['/REST1/'], 'ses_type':['/ses-01/'],
 						'input_type':['raw_pcorr.txt', 'mr_corr_pearson.txt', 'g_dmdcorr.csv'], 
 						'balance_type':['up', 'down', 'none', 'balanced'], 
-						'model_type':[LogisticRegression(penalty='l1', solver='saga', fit_intercept=False, max_iter=10000, tol=0.01)]}
+						'model_type':[LogisticRegression(penalty='l1', solver='saga', fit_intercept=False, max_iter=10000, tol=0.01),
+										svm.LinearSVC(penalty='l1', fit_intercept=False, max_iter=10000, tol=0.01),
+										DecisionTreeClassifier(),
+										RandomForestClassifier(bootstrap=True, max_features='auto')]}
 	keys, values = zip(*comparison_dict.items())
 	comparison_list = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
@@ -320,7 +339,8 @@ def runComparison():
 		A.preprocessing()
 
 		A.model=c['model_type']
-		A.set_balancing_type(c['balance_type'])
+		A.load_param_grid()  # load param grid based on the model type
+		A.set_balancing_type(c['balance_type']) # decude sampling type
 		A.set_cache_prefix('{task_type}_{ses_type}_{input_type}_{balance_type}_{model_type}_'.format(
 							task_type=c['task_type'].split('/')[1],
 							ses_type=c['ses_type'].split('/')[1],
@@ -328,7 +348,7 @@ def runComparison():
 							balance_type=c['balance_type'],
 							model_type=c['model_type'].__class__.__name__))
 		# hyper tunning
-		grid_search = tune_hyperparam(A.X, A.y, cv=20)
+		grid_search = tune_hyperparam(A.model, A.X, A.y, A.param_grid, cv=20)
 		grid_search_results = pd.DataFrame(grid_search.cv_results_)
 		grid_search_results.to_csv('./bin/'+A.cache_prefix+'hyperparam_score.csv')
 		plot_hyperparam(grid_search_results, save_path='./bin/'+A.cache_prefix+'hyperparam_score.png')

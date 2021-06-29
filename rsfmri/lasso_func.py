@@ -370,10 +370,10 @@ def cv_logistic_retrain(subj_censored, features, DV, best_c, num_cv):
 
 
 ############### MODEL COMPARE ###############
-def tune_hyperparam(X, y, cv=20):
-    model = LogisticRegression(fit_intercept=False, penalty='l1', max_iter=10000, warm_start=True, solver='liblinear')
-    param_grid = {'C': 1/np.logspace(-3, 3, 100)}
-    scoring = {'Accuracy': 'accuracy', 'AUC': 'roc_auc', 'Log_loss': 'neg_log_loss'}
+def tune_hyperparam(model, X, y, param_grid, cv=20):
+    #model = LogisticRegression(fit_intercept=False, penalty='l1', max_iter=10000, warm_start=True, solver='liblinear')
+    #param_grid = {'C': 1/np.logspace(-3, 3, 100)}
+    scoring = {'Accuracy': 'accuracy', 'AUC': 'roc_auc'}
     gs = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, cv=cv, refit='AUC', return_train_score=True)
     gs.fit(X, y)
     print('='*20)
@@ -473,7 +473,7 @@ def evaluate_model(model, X, y, cv=20):
         })
     return rand_scores.sort_values(by='roc_auc',ascending=False)
 
-def random_forest_tune(X, y):
+def random_forest_tuning(X, y):
     rf_model = RandomForestClassifier(random_state=0)
     random_grid={'bootstrap': [True, False],
                 'max_depth': [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, None],
@@ -481,24 +481,34 @@ def random_forest_tune(X, y):
                 'min_samples_leaf': [1, 2, 4],
                 'min_samples_split': [2, 5, 10],
                 'n_estimators': [int(x) for x in np.linspace(start = 200, stop = 2000, num = 10)]}
-    rf_random = RandomizedSearchCV(estimator = rf_model, param_distributions = random_grid, n_iter = 100, cv = 3, verbose=2, random_state=42, n_jobs = -1)
+    rf_random = RandomizedSearchCV(estimator = rf_model, param_distributions = random_grid, n_iter = 100, cv = 3, verbose=3, random_state=42, n_jobs = -1)
+    rf_random.fit(X, y)
     print('best parameters:', rf_random.best_params_)
-    param_grid={'bootstrap': True,
-                'max_depth':[6, 8, 10, 12, 14, 16],
-                'max_features': 'sqrt', 
-                'min_samples_leaf': 2,
-                'min_samples_split': 10,
-    }
+    print('best model:', rf_random.best_estimator_)
+    # param_grid={'bootstrap': True,
+    #             'max_depth':[6, 8, 10, 12, 14, 16],
+    #             'max_features': 'sqrt', 
+    #             'min_samples_leaf': 2,
+    #             'min_samples_split': 10,
+    # }
     return rf_model
 
-def decision_tree(X, y):
-    dt_model = DecisionTreeClassifier(random_state=0)
+def decision_tree_tuning(X, y):
+    dt_model = DecisionTreeClassifier()
+    param_dist = {"max_depth": [3, None],
+              "max_features": randint(1, 9),
+              "min_samples_leaf": randint(1, 9),
+              "criterion": ["gini", "entropy"]}
     dt_model.fit(X, y)
     return dt_model
 
-def svm(X, y):
+def svm_tuning(X, y):
     svm_model = svm.SVC()
-    svm_model.fit(X, y)
+    random_grid = {'C': [0.1, 1, 10, 100], 'gamma': [1,0.1,0.01,0.001],'kernel': ['rbf', 'poly', 'sigmoid']}
+    svm_random = RandomizedSearchCV(estimator = svm_model, param_distributions = random_grid, refit=True, n_iter = 100, cv = 3, verbose=3, random_state=42, n_jobs = -1)
+    svm_random.fit(X, y)
+    print('best parameters:', svm_random.best_params_)
+    print('best model:', svm_random.best_estimator_)
     return svm_model
 
 def neural_network(X, y):
