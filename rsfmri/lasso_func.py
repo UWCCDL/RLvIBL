@@ -384,22 +384,25 @@ def tune_hyperparam(model, X, y, param_grid, cv=20):
     return gs
 
 def plot_hyperparam(results, save_path=False):
-    scoring = {'Accuracy': 'accuracy', 'AUC': 'roc_auc', 'Log_loss': 'neg_log_loss'}
-    param_grid = {'C': 1/np.logspace(-1, 3, 100)}
+    #scoring = {'Accuracy': 'accuracy', 'AUC': 'roc_auc', 'Log_loss': 'neg_log_loss'}
+    #param_grid = {'C': 1/np.logspace(-1, 3, 100)}
+    scoring = {'Accuracy': 'accuracy', 'AUC': 'roc_auc'}
+    param_name=results.params.values.tolist()[0].split("'")[1]
+    param_grid={param_name:np.array([p[0] for p in results.filter(regex='param_').values.tolist()])}
     
     plt.figure(figsize=(10, 6))
     plt.title("GridSearchCV evaluating using multiple scorers simultaneously",fontsize=16)
     
-    plt.xlabel("Inverse of regularization strength: C")
+    plt.xlabel("Hyper Parameter: {:}".format(param_name))
     plt.ylabel("Score")
     plt.grid()
     
     ax = plt.axes()
-    ax.set_xlim(param_grid['C'].min(), param_grid['C'].max()) 
+    ax.set_xlim(param_grid[param_name].min(), param_grid[param_name].max()) 
     #ax.set_ylim(0, 1.2)
     
     # Get the regular numpy array from the MaskedArray
-    X_axis = np.array(results['param_C'], dtype=float)
+    X_axis = np.array(param_grid[param_name], dtype=float)
     
     for scorer, color in zip(list(scoring.keys()), ['g', 'k', 'b']): 
         for sample, style in (('train', '--'), ('test', '-')):
