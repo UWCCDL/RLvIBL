@@ -322,7 +322,7 @@ def runComparison():
 						'input_type':['raw_pcorr.txt', 'mr_corr_pearson.txt', 'g_dmdcorr.csv'], 
 						'balance_type':['up', 'down', 'none', 'balanced'], 
 						'model_type':[LogisticRegression(penalty='l1', solver='saga', fit_intercept=False, max_iter=10000, tol=0.01),
-										svm.LinearSVC(penalty='l1', fit_intercept=False, max_iter=10000, tol=0.01),
+										
 										DecisionTreeClassifier(),
 										RandomForestClassifier(bootstrap=True, max_features='auto')]}
 	keys, values = zip(*comparison_dict.items())
