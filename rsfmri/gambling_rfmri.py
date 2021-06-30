@@ -318,7 +318,7 @@ def runLasso():
 
 def runComparison():
 	
-	comparison_dict={'task_type':['/REST1/'], 'ses_type':['/ses-01/'],
+	comparison_dict={'task_type':['/REST1/', '/REST2/'], 'ses_type':['/ses-01/', '/ses-02/'],
 						'input_type':['raw_pcorr.txt', 'mr_corr_pearson.txt', 'g_dmdcorr.csv'], 
 						'balance_type':['up', 'down', 'none', 'balanced'], 
 						'model_type':[LogisticRegression(penalty='l1', solver='saga', fit_intercept=False, max_iter=10000, tol=0.01),
@@ -333,37 +333,44 @@ def runComparison():
 	
 	for i in range(len(comparison_list)):
 		c=comparison_list[i] # curr list
-
-		A=LassoAnalysis()
-		A.loading(task_dir=c['task_type'], ses_dir=c['ses_type'], fname=c['input_type'])
-		A.preprocessing()
-
-		A.model=c['model_type']
-		A.load_param_grid()  # load param grid based on the model type
-		A.set_balancing_type(c['balance_type']) # decude sampling type
-		A.set_cache_prefix('{task_type}_{ses_type}_{input_type}_{balance_type}_{model_type}_'.format(
+		
+		#check exists
+		pref='{task_type}_{ses_type}_{input_type}_{balance_type}_{model_type}_'.format(
 							task_type=c['task_type'].split('/')[1],
 							ses_type=c['ses_type'].split('/')[1],
 							input_type=c['input_type'].split('.')[0].split('_')[1],
-							balance_type=c['balance_type'],
-							model_type=c['model_type'].__class__.__name__))
-		# hyper tunning
-		grid_search = tune_hyperparam(A.model, A.X, A.y, A.param_grid, cv=20)
-		grid_search_results = pd.DataFrame(grid_search.cv_results_)
-		grid_search_results.to_csv('./bin/'+A.cache_prefix+'hyperparam_score.csv')
-		plot_hyperparam(grid_search_results, save_path='./bin/'+A.cache_prefix+'hyperparam_score.png')
+							balance_type=c['balance_type'], 
+							model_type=c['model_type'].__class__.__name__)
+		fname1='./bin/'+pref+'hyperparam_score.csv'
+		fname2='./bin/'+pref+'evaluation_score.csv'
+		if (os.path.exists(fname1) & os.path.exists(fname2)):
+			print('Skipping...\n\t{}\n\t{}'.format(fname1, fname2))
+		else:
+			A=LassoAnalysis()
+			A.loading(task_dir=c['task_type'], ses_dir=c['ses_type'], fname=c['input_type'])
+			A.preprocessing()
 
-		# evaluate model
-		A.best_model = grid_search.best_estimator_
-		eval_scores = evaluate_model(A.best_model, A.X, A.y, cv=A.y.value_counts()[0])
-		eval_scores.to_csv('./bin/'+A.cache_prefix+'evaluation_score.csv')
+			A.model=c['model_type']
+			A.load_param_grid()
+			A.set_balancing_type(c['balance_type'])
+			A.set_cache_prefix(pref)
+			# hyper tunning
+			grid_search = tune_hyperparam(A.model, A.X, A.y, A.param_grid, cv=20)
+			grid_search_results = pd.DataFrame(grid_search.cv_results_)
+			grid_search_results.to_csv('./bin/'+A.cache_prefix+'hyperparam_score.csv')
+			plot_hyperparam(grid_search_results, save_path='./bin/'+A.cache_prefix+'hyperparam_score.png')
 
-		# log 
-		c['gs_best_params_'] = grid_search.best_params_
-		c['gs_best_score_'] = grid_search.best_score_
-		c['evaluation_accuracy'] = eval_scores['accuracy'].mean()
-		c['evaluation_auc'] = eval_scores['roc_auc'].mean()
-		pd.DataFrame.from_dict(c, orient='index').T.to_csv('./bin/comparison_log.csv', mode='a', header=not(i))
+			# evaluate model
+			A.best_model = grid_search.best_estimator_
+			eval_scores = evaluate_model(A.best_model, A.X, A.y, cv=A.y.value_counts()[0])
+			eval_scores.to_csv('./bin/'+A.cache_prefix+'evaluation_score.csv')
+
+			# log 
+			c['gs_best_params_'] = grid_search.best_params_
+			c['gs_best_score_'] = grid_search.best_score_
+			c['evaluation_accuracy'] = eval_scores['accuracy'].mean()
+			c['evaluation_auc'] = eval_scores['roc_auc'].mean()
+			pd.DataFrame.from_dict(c, orient='index').T.to_csv('./bin/comparison_log.csv', mode='a', header=not(i))
  
 def main():
 	runLasso()
