@@ -358,7 +358,8 @@ def runComparison():
 			grid_search = tune_hyperparam(A.model, A.X, A.y, A.param_grid, cv=20)
 			grid_search_results = pd.DataFrame(grid_search.cv_results_)
 			grid_search_results.to_csv('./bin/'+A.cache_prefix+'hyperparam_score.csv')
-			plot_hyperparam(grid_search_results, save_path='./bin/'+A.cache_prefix+'hyperparam_score.png')
+			if (c['model_type'].__class__.__name__=='LogisticRegression'):
+				plot_hyperparam(grid_search_results, save_path='./bin/'+A.cache_prefix+'hyperparam_score.png')
 
 			# evaluate model
 			A.best_model = grid_search.best_estimator_
