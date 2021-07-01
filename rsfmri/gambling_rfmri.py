@@ -327,7 +327,7 @@ def runComparison():
 						'input_type':['raw_pcorr.txt', 'mr_corr_pearson.txt', 'g_dmdcorr.csv'], 
 						'balance_type':['up', 'down', 'none', 'balanced'], 
 						'model_type':[LogisticRegression(penalty='l1', solver='saga', fit_intercept=False, max_iter=10000, tol=0.01),
-										
+										svm.LinearSVC(penalty='l1', dual=False),
 										DecisionTreeClassifier(),
 										RandomForestClassifier(bootstrap=True, max_features='auto')]}
 	keys, values = zip(*comparison_dict.items())
@@ -347,10 +347,13 @@ def runComparison():
 							balance_type=c['balance_type'], 
 							model_type=c['model_type'].__class__.__name__)
 		fname1='./bin/'+pref+'hyperparam_score.csv'
-		fname2='./bin/'+pref+'evaluation_score.csv'
-		if (os.path.exists(fname1) & os.path.exists(fname2)):
+		fname2='./bin/'+pref+'hyperparam_score.png'
+		fname3='./bin/'+pref+'evaluation_score.csv'
+		
+		if (os.path.exists(fname1) & os.path.exists(fname2) & os.path.exists(fname3)):
 			print('Skipping...\n\t{}\n\t{}'.format(fname1, fname2))
 		else:
+			# init
 			A=LassoAnalysis()
 			A.loading(task_dir=c['task_type'], ses_dir=c['ses_type'], fname=c['input_type'])
 			A.preprocessing()
@@ -359,24 +362,46 @@ def runComparison():
 			A.load_param_grid()
 			A.set_balancing_type(c['balance_type'])
 			A.set_cache_prefix(pref)
+			
 			# hyper tunning
-			grid_search = tune_hyperparam(A.model, A.X, A.y, A.param_grid, cv=20)
-			grid_search_results = pd.DataFrame(grid_search.cv_results_)
-			grid_search_results.to_csv('./bin/'+A.cache_prefix+'hyperparam_score.csv')
-			if (c['model_type'].__class__.__name__=='LogisticRegression'):
-				plot_hyperparam(grid_search_results, save_path='./bin/'+A.cache_prefix+'hyperparam_score.png')
+			if (not os.path.exists(fname1)):
+				print('Tunning...\n\t{}'.format(fname1))
+				grid_search = tune_hyperparam(A.model, A.X, A.y, A.param_grid, cv=20)
+				grid_search_results = pd.DataFrame(grid_search.cv_results_)
+				grid_search_results.to_csv('./bin/'+A.cache_prefix+'hyperparam_score.csv')
+			else:
+				print('Loading...\n\t{}'.format(fname1))
+				grid_search=None
+				grid_search_results=pd.read_csv(fname1, index_col=0)
+				
+			# plot regularization
+			if (not os.path.exists(fname2)):
+				print('Plotting...\n\t{}'.format(fname2))
+				plot_hyperparam(grid_search_results, save_path=fname2)
+			else:
+				print('Skipping plot...\n\t{}'.format(fname2))
 
 			# evaluate model
-			A.best_model = grid_search.best_estimator_
-			eval_scores = evaluate_model(A.best_model, A.X, A.y, cv=A.y.value_counts()[0])
-			eval_scores.to_csv('./bin/'+A.cache_prefix+'evaluation_score.csv')
+			if (not os.path.exists(fname3)):
+				print('Evaluating...\n\t{}'.format(fname3))
+				A.best_model = grid_search.best_estimator_
+				eval_scores = evaluate_model(A.best_model, A.X, A.y, cv=A.y.value_counts()[0])
+				eval_scores.to_csv(fname3)
+			else:
+				print('Loading...\n\t{}'.format(fname3))
+				eval_scores=pd.read_csv(fname3, index_col=0)
 
 			# log 
-			c['gs_best_params_'] = grid_search.best_params_
-			c['gs_best_score_'] = grid_search.best_score_
-			c['evaluation_accuracy'] = eval_scores['accuracy'].mean()
-			c['evaluation_auc'] = eval_scores['roc_auc'].mean()
-			pd.DataFrame.from_dict(c, orient='index').T.to_csv('./bin/comparison_log.csv', mode='a', header=not(i))
+			if (grid_search!=None & eval_scores!=None):
+				print('Logging...\n\t{}'.format(fname3))
+				c['gs_best_params_'] = grid_search.best_params_
+				c['gs_best_score_'] = grid_search.best_score_
+				c['evaluation_accuracy'] = eval_scores['accuracy'].mean()
+				c['evaluation_auc'] = eval_scores['roc_auc'].mean()
+				pd.DataFrame.from_dict(c, orient='index').T.to_csv('./bin/comparison_log.csv', mode='a', header=not(i))
+			else:
+				print('Skipping cmoparison_log...')
+				
  
 def main():
 	runLasso()

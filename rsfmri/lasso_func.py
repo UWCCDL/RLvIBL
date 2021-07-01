@@ -387,7 +387,7 @@ def plot_hyperparam(results, save_path=False):
     #scoring = {'Accuracy': 'accuracy', 'AUC': 'roc_auc', 'Log_loss': 'neg_log_loss'}
     #param_grid = {'C': 1/np.logspace(-1, 3, 100)}
     scoring = {'Accuracy': 'accuracy', 'AUC': 'roc_auc'}
-    param_name=results.params.values.tolist()[0].split("'")[1]
+    param_name=results['params'].values.tolist()[0].split("'")[1]
     param_grid={param_name:np.array([p[0] for p in results.filter(regex='param_').values.tolist()])}
     
     plt.figure(figsize=(10, 6))
