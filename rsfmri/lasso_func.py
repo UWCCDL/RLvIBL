@@ -499,8 +499,8 @@ def random_forest_tuning(X, y):
 def decision_tree_tuning(X, y):
     dt_model = DecisionTreeClassifier()
     param_dist = {"max_depth": [3, None],
-              "max_features": randint(1, 9),
-              "min_samples_leaf": randint(1, 9),
+              "max_features": list(range(1, 10)),
+              "min_samples_leaf": list(range(1, 10)),
               "criterion": ["gini", "entropy"]}
     dt_model.fit(X, y)
     return dt_model
@@ -515,8 +515,15 @@ def svm_tuning(X, y):
     return svm_model
 
 def neural_network(X, y):
-    nn_model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(5, 2), random_state=1)
-    nn_model.fit(X, y)
+    nn_model = MLPClassifier()
+    random_grid = {
+    'hidden_layer_sizes': [(10,30,10),(20,)],
+    'alpha': [0.0001, 0.05],
+    'learning_rate': ['constant','adaptive']}
+    nn_random = RandomizedSearchCV(estimator = nn_model, param_distributions = random_grid, refit=True, n_iter = 100, cv = 3, verbose=3, random_state=42, n_jobs = -1)
+    nn_random.fit(X, y)
+    print('best parameters:', nn_random.best_params_)
+    print('best model:', nn_random.best_estimator_)
     return nn_model
 
 

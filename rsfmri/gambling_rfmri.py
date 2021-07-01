@@ -141,9 +141,14 @@ class LassoAnalysis:
 			self.X=balanced[self.features]
 			self.y=balanced[self.DV]
 		elif type=='balanced':
-			self.model.set_params(class_weight='balanced')
-			self.X=self.subj_censored[self.features]
-			self.y=self.subj_censored[self.DV]	
+			try:
+				self.model.set_params(class_weight='balanced')
+				self.X=self.subj_censored[self.features]
+				self.y=self.subj_censored[self.DV]	
+			except:
+				self.model.set_params(class_weight=None)
+				self.X=self.subj_censored[self.features]
+				self.y=self.subj_censored[self.DV]	
 		else:
 			self.model.set_params(class_weight=None)
 			self.X=self.subj_censored[self.features]
