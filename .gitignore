@@ -16,7 +16,9 @@ actr-models/model_output/gs_check
 actr-models/model_output/seed
 actr-models/model_output/*.csv
 bin/ROI_pwer264
+cherdata
 temp/
+rsfmri/REST*
 rsfmri/.idea
 rsfmri/__pycache__
 rsfmri/.ipynb_checkpoints/
