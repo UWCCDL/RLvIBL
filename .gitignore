@@ -18,7 +18,8 @@ actr-models/model_output/*.csv
 bin/ROI_pwer264
 cherdata
 temp/
-rsfmri/REST*
+rsfmri/REST2
+rsfmri/REST1/*/ses-02
 rsfmri/.idea
 rsfmri/__pycache__
 rsfmri/.ipynb_checkpoints/
@@ -29,8 +30,10 @@ rsfmri/REST_corr
 rsfmri/timeseries
 *sub/
 bin/
-
-
+*timeseries*
+*spearman*
+*raw_corr*
+*mr_corr*
 
 
 
