@@ -1,0 +1,70 @@
+index,network,network_names,connection,censor,Beta
+8206,1-1,Sensory/somatomotor Hand-Sensory/somatomotor Hand,22-32,TRUE,-1.890862581660643
+8207,1-1,Sensory/somatomotor Hand-Sensory/somatomotor Hand,23-32,TRUE,2.305052480623145
+9264,1-1,Sensory/somatomotor Hand-Sensory/somatomotor Hand,24-36,TRUE,-2.033095483007959
+10063,1-1,Sensory/somatomotor Hand-Sensory/somatomotor Hand,31-39,TRUE,2.812012123428282
+16959,4-4,Auditory-Auditory,63-65,TRUE,0.5377571181527361
+18017,4-4,Auditory-Auditory,65-69,TRUE,4.033458926222609
+18020,4-4,Auditory-Auditory,68-69,TRUE,-0.2677555344999227
+18261,2-4,Sensory/somatomotor Mouth-Auditory,45-70,TRUE,2.487284308408451
+18274,3-4,Cingulo-opercular Task Control-Auditory,58-70,TRUE,0.041460587272517
+18282,4-4,Auditory-Auditory,66-70,TRUE,-0.11546457104670592
+21995,-1-5,Uncertain-Default mode,83-84,TRUE,0.6804702136241119
+24368,5-5,Default mode-Default mode,80-93,TRUE,1.6998100607684667
+24906,5-5,Default mode-Default mode,90-95,TRUE,-3.744934724967963
+24907,5-5,Default mode-Default mode,91-95,TRUE,-5.518737452900947
+26222,5-5,Default mode-Default mode,86-100,TRUE,-0.044323126680652546
+28059,5-5,Default mode-Default mode,75-107,TRUE,-1.7416177922341405
+28323,5-5,Default mode-Default mode,75-108,TRUE,-2.9371148925948938
+31420,-1-5,Uncertain-Default mode,4-120,TRUE,0.37132022721382396
+31534,5-5,Default mode-Default mode,118-120,TRUE,0.5283778203384351
+32816,5-5,Default mode-Default mode,80-125,TRUE,4.467026643871297
+33124,5-5,Default mode-Default mode,124-126,TRUE,-0.5058627776263045
+34942,5-6,Default mode-Memory retrieval?,94-133,TRUE,1.6603598607593335
+35205,5-6,Default mode-Memory retrieval?,93-134,TRUE,-2.417167900085892
+35469,5-6,Default mode-Memory retrieval?,93-135,TRUE,-1.3721352685992034
+36007,5-5,Default mode-Default mode,103-137,TRUE,-1.6335528707090283
+37613,5-7,Default mode-Visual,125-143,TRUE,5.9995479140164365
+40807,7-7,Visual-Visual,151-155,TRUE,-2.0898917973686917
+41075,7-7,Visual-Visual,155-156,TRUE,-3.0421803555126252
+41328,7-7,Visual-Visual,144-157,TRUE,0.5258029996332516
+41864,7-7,Visual-Visual,152-159,TRUE,0.897046889277323
+42660,7-7,Visual-Visual,156-162,TRUE,1.5860182239874976
+42927,7-7,Visual-Visual,159-163,TRUE,-11.654129490460328
+43186,7-7,Visual-Visual,154-164,TRUE,2.0683266192722978
+43458,7-7,Visual-Visual,162-165,TRUE,1.0872286410704028
+44501,7-7,Visual-Visual,149-169,TRUE,-0.8385946704253694
+44514,7-7,Visual-Visual,162-169,TRUE,-3.298121709533307
+45566,7-7,Visual-Visual,158-173,TRUE,1.0987779248071632
+45810,8-11,Fronto-parietal Task Control-Ventral attention,138-174,TRUE,2.7059068130099084
+47700,8-8,Fronto-parietal Task Control-Fronto-parietal Task Control,180-181,TRUE,-1.0696609658294267
+48220,-1-7,Uncertain-Visual,172-183,TRUE,0.9776293547274826
+48759,-1--1,Uncertain-Uncertain,183-185,TRUE,0.31034171784512443
+49015,8-8,Fronto-parietal Task Control-Fronto-parietal Task Control,175-186,TRUE,-1.7408922150659734
+50082,8-8,Fronto-parietal Task Control-Fronto-parietal Task Control,186-190,TRUE,-4.202373434526845
+51142,8-8,Fronto-parietal Task Control-Fronto-parietal Task Control,190-194,TRUE,-1.1442293880898762
+52464,8-8,Fronto-parietal Task Control-Fronto-parietal Task Control,192-199,TRUE,-2.959175918150915
+53356,1-9,Sensory/somatomotor Hand-Salience,28-203,TRUE,1.6719133337862198
+53422,5-9,Default mode-Salience,94-203,TRUE,2.9323349139842643
+54042,8-9,Fronto-parietal Task Control-Salience,186-205,TRUE,-4.519780439470666
+54221,5-9,Default mode-Salience,101-206,TRUE,-1.4164825308374354
+55120,9-9,Salience-Salience,208-209,TRUE,6.915352925728503
+55500,3-9,Cingulo-opercular Task Control-Salience,60-211,TRUE,3.2333179804029553
+55649,9-9,Salience-Salience,209-211,TRUE,-1.1288630382425207
+56708,9-9,Salience-Salience,212-215,TRUE,-0.09214967231391756
+57240,9-9,Salience-Salience,216-217,TRUE,-0.9164953608992754
+57770,9-9,Salience-Salience,218-219,TRUE,-0.4581070291739083
+61041,3-10,Cingulo-opercular Task Control-Subcortical,57-232,TRUE,-0.2802006317778048
+61745,10-10,Subcortical-Subcortical,233-234,TRUE,-0.15581612000922093
+62630,4-11,Auditory-Ventral attention,62-238,TRUE,-2.2133070849349012
+63756,-1-11,Uncertain-Ventral attention,132-242,TRUE,-0.7541877477976946
+64071,-1-13,Uncertain-Cerebellar,183-243,TRUE,-4.111934954111791
+66780,-1-12,Uncertain-Dorsal attention,252-253,TRUE,3.474625149898938
+67242,1-8,Sensory/somatomotor Hand-Fronto-parietal Task Control,186-255,TRUE,-0.6062063003101522
+67260,1-9,Sensory/somatomotor Hand-Salience,204-255,TRUE,-0.26895295191707286
+67836,12-12,Dorsal attention-Dorsal attention,252-257,TRUE,-0.14686091450056496
+67838,-1-12,Uncertain-Dorsal attention,254-257,TRUE,0.005206204352059857
+67873,1-12,Sensory/somatomotor Hand-Dorsal attention,25-258,TRUE,1.3737750850966264
+68814,8-12,Fronto-parietal Task Control-Dorsal attention,174-261,TRUE,-2.4218381880869235
+69218,3-12,Cingulo-opercular Task Control-Dorsal attention,50-263,TRUE,-2.0195408764508875
+69461,1-12,Sensory/somatomotor Hand-Dorsal attention,29-264,TRUE,0.33782447839733254
