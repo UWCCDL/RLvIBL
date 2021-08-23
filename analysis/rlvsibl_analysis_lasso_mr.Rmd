@@ -56,11 +56,7 @@ power2011 <- read_csv("../bin/power_2011.csv",
   dplyr::select(ROI, X, Y, Z, Network, Color, NetworkName)
 ```
 
-
-Then, let's create the functional connectivity matrix for every single subject in the dataset. This step can be skipped by setting the `CREATE_FC` variable to `F`. 
-
-
-## Load the group-level data
+## Create the Group-Level Regressor Matrix $X$
 
 We now need to load the group level data. In essence, to corresponds to create a matrix _X_ in which every individual is a row and every columns is a different ROI-to-ROI connection.
 
@@ -138,7 +134,6 @@ for (sub in dir("../rsfmri/REST1")[grep("sub-*", dir("../rsfmri/REST1"))]) {
              )) %>%
     as.matrix() 
   v <- as_vector(M[,2:265])  # v spreads M column-wise. M is symmetrical, so it should not matter, but better not risk it
-  #print(c(length(v), mean(v)))
   C[j,] <- v
   if (length(v[is.na(v)]) > 0) {
     print(paste("NA detected in sub", sub))
@@ -147,21 +142,11 @@ for (sub in dir("../rsfmri/REST1")[grep("sub-*", dir("../rsfmri/REST1"))]) {
   
   j <- j + 1
 }
-
-# Create python-compatible data
-#
-# for (sub in dir()[grep("sub-*", dir())]) {
-#   R1 <- read.table(paste(sub, "R.txt", sep="/"))
-#   R2 <- read.table(paste(sub, "PR.txt", sep="/"))
-#   write.table(R1, paste(sub, "R_py.txt", sep="/"), sep = " ", row.names = F, col.names=F)
-#   write.table(R2, paste(sub, "PR_py.txt", sep="/"), sep = " ", row.names = F, col.names=F)
-# }
-
 ```
 
 ## Define the Networks
 
-Now, we can restrict the analysis only to a limited set of networks (and their cross-network connections) by modifying the `NOI` (Networks of Interest) variable. The variable will be used to create a second list, `COI` (Connections of interest), which will contain the possible list of network-to-network connections 
+If we want, we can restrict the analysis only to a limited set of networks (and their cross-network connections) by modifying the `NOI` (Networks of Interest) variable. The variable will be used to create a second list, `COI` (Connections of interest), which will contain the possible list of network-to-network connections for the networks in `NOI`. (This is currently not needed, since the $X$ matrix is already restricted to meaningful connections).
 
 ```{r}
 NOI <- c(
@@ -186,21 +171,32 @@ COI <- outer(NOI,
              function(x, y) {paste(x, y, sep="-")}) %>% as.vector()
 ```
 
-
 Now, we need to remove some columns from the hyper-large X matrix, and define proper groupings for Lasso.
 
+First, we ensure that the data in the connectivity matrix _C_ is actually numeric.
 ```{r}
-# Ensure the data is numeric
-
 C <- apply(C, 2, FUN=as.numeric)
-# Here we simplify create a tibble which the X columns, and create a censor column to decide which ones to keep
-# If ROI1 = i and ROI2 = j, we keep column <i,j> IFF i < j.  This should keep the lower triangle.
+```
+
+Then, we create a set of "censor" vectors, each of each in a binary vector that has the same lenght as the columns of _C_. If the _j_-th element of the censor vector is `TRUE`, the corresponding column in _C_ is kept, otherwise it is removed from the possible regressors.
+
+The first censor vector simply removes the redundant columns (since the connectivity from _A_ to _B_ is the same as the connectivity of _B_ to _A_) and the self-correlations:
+
+```{r}
 censor <- outer(power2011$ROI, 
                 power2011$ROI, 
                 function(x, y) {x < y}) %>% as.vector()
+```
 
+The second censor vector removes unlikely functional connections: Those with a partial correlation value $|r| < 0.05|$.   
+
+```{r}
 censor2 <- colMeans(C) %>% abs() > 0.05
+```
 
+Now, we combine the censor vectors in a tibble that contains all of the relevant information about each column in _C_.
+
+```{r}
 order <- tibble(index = 1:length(nets), 
                 network = nets, 
                 network_names = netnames,
@@ -208,8 +204,11 @@ order <- tibble(index = 1:length(nets),
                 censor=censor,
                 censor2 = censor2)
 order %<>% arrange(network)
+```
 
+And we remove all entries for each a censor vector is `FALSE` (we also create a grouping factor _G_, in case in the future we want to use _Group_ Lasso)
 
+```{r}
 I <- order %>%
   filter(censor == TRUE) %>%
   filter(censor2 == TRUE) %>%
@@ -221,19 +220,26 @@ G <- order %>%
   filter(network_names %in% COI) %>%
   dplyr::select(network) 
 # G is the real grouping factor for Lasso!
+```
 
-# The real X:
+As a last step, we create the "real" regressor matrix $X$, which is the proper subset of $C$ after removing all of the censored columns.
+
+```{r}
 X <- C[,as_vector(I)]
 ```
 
-## Load the dependent variable $Y$
+## Load the Dependent Variable $Y$
 
-Now we need to load the dependent variable. In this case, it is the rate of forgetting $alpha$, which is stored as part of the participants' meta-data in `participats.tsv`. 
+Now we need to load the dependent variable. In this case, it is a binary variable that determines which strategy model best fits the behavioral data of an individual, whether it is the "memory" strategy ($Y = 1$) or the "procedural" strategy ($Y = 2$).
 
-Note that we could not measure $alpha$ for all participants, so we have to keep track of which rows in the $X$ regressor matrix we want to exclude from our Lasso analysis.
 
 ```{r}
-dvs <- read_csv("../actr-models/model_output/MODELLogLikelihood.csv") %>% 
+dvs <- read_csv("../actr-models/model_output/MODELLogLikelihood.csv",
+                col_types = cols(
+                  .default = col_double(),
+                  HCPID = col_character(),
+                  best_model = col_character()
+                )) %>% 
   dplyr::select(HCPID, best_model) %>%
   arrange(HCPID)
 ```
@@ -249,15 +255,19 @@ Y <- dvs$best_model[keep_Y]
 X <- X[keep_X, ]
 ```
 
-Finally, we transform the dependent variable $Y$ into a binary numeric variable, so that we can use logistic regression.
+Finally, we transform the dependent variable $Y$ into a binary numeric variable with values $(0, 1)$, so that we can use logistic regression.
 
 ```{r}
 Y <- as.numeric(as.factor(Y)) - 1
 ```
 
-## Collinearity of Connectivity Regressors
+### Quality and Characteristics of $X$ and $Y$ 
 
-The regressors $X$ is certainly multi-collinear. To gather a sense of how much it is so, we can plot the distribution of correlations among regressors:
+Let's do some visualization and analysis of our indepedenent and dependet variables, just to ensure there are no obvious problems. 
+
+#### Collinearity of Connectivity Regressors $X$
+
+The regressors $X$ is certainly multi-collinear; that is a consequence of having a large number of predictors $p > n$, which, in turn, is one of the reasons  why we are using Lasso. Too much collinearity, however, could be really bad and push Lasso towards  selecting non-optimal regressors. To gather a sense of how much collinearity we have, we can plot the distribution of correlations among regressors:
 
 ```{r}
 corX <- cor(X)
@@ -265,24 +275,25 @@ distCor <- as_vector(corX[lower.tri(corX, diag = F)])
 distTibble <- as_tibble(data.frame(R=distCor))
 
 ggplot(distTibble, aes(x=R)) +
-  geom_histogram(col="white") +
+  geom_histogram(col="white", alpha=0.5, binwidth = 0.05) +
   theme_pander() +
   ylab("Number of Correlations") +
   xlab("Correlation Value") +
   ggtitle("Distribution of Correlation Values Between Regressors")
-
 ```
 
-And now, let's visualize the historgram of the dependent variable we are trying to predict:
+All in all, the collinearity is not that bad---all regressors are correlated at $|r| < 0.25$, and most of them are correlated at $|r| < 0.1$, with a peak at $r = 0$.
+
+#### Distribution of Classes
+
+And now, let's visualize the histogram of the dependent variable we are trying to predict:
 
 ```{r}
 dependent <- as_tibble(data.frame(strategy=Y))
-#d3 <- pal_d3()
-#kol = d3(7)
 
-ggplot(dependent, aes(x=strategy)) +
+ggplot(dependent, aes(x = strategy, fill=as.factor(strategy))) +
   geom_histogram(bins=8, col="white", alpha=0.5) +
-  geom_vline(xintercept = mean(dependent$alpha)) +
+  scale_fill_aaas() +
   xlab("Strategy") +
   ylab("Number of Participants") +
   ggtitle("Distribution of Strategy Use") +
@@ -291,13 +302,16 @@ ggplot(dependent, aes(x=strategy)) +
 
 ```
 
+Because the classes are not equally distributed, and participants are more likely to use the memory strategy ($Y=0$) than the procedural one ($Y = 1$), we would need to adjust the weights of our Lasso model.
+
 # Machine-Learning with Lasso
 
 To analyzie the data, we will use Lasso, a statitical learning system based on penalyzed regression.
 
 ## Weights
 
-Here we should maybe do oversampling? Most of the model fits are coded as "0", which creates an imbalance. We are going to create an appropriate set of weights so that the two classes are balanced.
+Most of the entries in our $Y$ vector are coded as "0" (i.e., most poarticipants use the memory strategy), which creates an imbalance. We are going to create an appropriate set of weights so that the two classes are balanced.
+
 ```{r}
 W <- Y
 W[W == 0] <- mean(Y)
@@ -306,6 +320,8 @@ W[W == 1] <- (1-mean(Y))
 
 ## Defining the model
 
+We can now define the lasso model. We will use the elastic net approach with $\alpha = 0$ to generate a pure lasso model. The model will use a binomial (i.e., logistic) regression and will measure the cross-validation error as class misassignment.
+
 ```{r}
 fit <- glmnet(y = Y,
               x = X,
@@ -313,30 +329,39 @@ fit <- glmnet(y = Y,
               weights = W,
               family = "binomial",
               type.measure = "class",
-
-              #lambda.min = 0.5,
-             #lam= 0.04978707,#log(length(Y)),
               standardize = T
 )
+```
 
-#fit.cv <- cv.ncvreg(y = Y,
+To choose the optimal value of $\lambda$ in Lasso, we will examine the cross-validation error during a LOO cross-validation.
 
+```{r}
 fit.cv <- cv.glmnet(y = Y,
                     x = X,
                     alpha=1,
                     family = "binomial",
                     weights = W,
                     type.measure = "class",
-                    # lam=exp(seq(-3, -10, -0.1)),
-                   #penalty="SCAD",
                     standardize=T,
-                    nfolds=length(Y)
+                    nfolds=length(Y),
+                    grouped = F
 )
+```
 
+Now, let's look at the cross-validation error profile.
+
+```{r}
 plot(fit.cv)
+```
+
+The profile has the characteristic U-shape or increasing curve, with more error as $\lambda$ increases. As recommended by Tibishirani, we will select the "lambda 1SE" value, which is the largest $\lambda$ value that does not differ by more tha 1 SE from the $\lambda$ value that gives us the minimum cross validation error. This guarantees the maximum generalizability. 
+
+We can also visualize the profile of the beta weights of each connection for different values of $\lambda$.
+
+```{r}
 plot(fit, sub="Beta Values for Connectivity")
 
-L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.min)]))
+L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.1se)]))
 abline(v=L1norm, lwd=2, lty=2)
 ```
 
@@ -361,16 +386,16 @@ ggplot(lasso_df, aes(x=lambda, y=error)) +
 
 ## Examining the Predictive Connectome
 
-Let's have a better look at the relevant connections.
+Let's have a better look at the relevant connections that survive the Lass penalty at the value of $\lambda_{min} + 1 SE$. We start by saving these connections in a tibble, and saving the data on a file for later use.
 
 ```{r}
 betas <- fit$beta[, which(fit$lambda==fit.cv$lambda.1se)]
 conn_betas <- as_tibble(data.frame(index=I$index, Beta=betas))
 connectome <- order %>%
-   filter(index %in% I$index) %>%
-   inner_join(conn_betas) %>%
+  filter(index %in% I$index) %>%
+  inner_join(conn_betas) %>%
   dplyr::select(-censor2) %>%
-   filter(Beta != 0) %>%
+  filter(Beta != 0) %>%
   arrange(index)
 
 write_csv(connectome, file="strategy_mr.csv")
@@ -437,7 +462,7 @@ ggplot(total_stats, aes(x="", y=N, fill=NetworkName)) +
 There is no difference in the distribution of ROIs:
 
 ```{r}
-chisq.test(roi_stats$N*length(lROIs), p=noi_stats$N)
+chisq.test(roi_stats$N*length(lROIs), p = noi_stats$N)
 ```
 
 And now, let's look at the sparsity
@@ -499,12 +524,44 @@ ggplot(total_stats2, aes(x="", y=P, fill=connection_type)) +
   theme(legend.position = "bottom")
 ```
 
-The differnece in distribution is  
+The differenece in the two distributions is significant.
 
 ```{r}
 chisq.test(connectome_stats$N, p=coi_stats$P)
 ```
 
+## Connectivity by Region
+
+Finally, we can look at how many connectionseach region belongs to:
+
+```{r}
+rois <- c(vregion_from(connectome$connection), vregion_to(connectome$connection))
+rois_t <- tibble(roi = rois)
+rois_t %>%
+  group_by(roi) %>%
+  summarize(N = length(roi)) %>%
+  arrange(N) -> rois_dist
+
+rois_dist %>%
+  xtable() %>%
+  kable(digits = 5) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+And visualize
+
+```{r}
+ggplot(rois_dist, aes(x=N)) +
+  geom_histogram(alpha=0.5, col="white", 
+                 binwidth = 1) +
+  ggtitle("Distribution of Number of Connections per ROI") +
+  stat_bin(binwidth= 1, 
+           geom="text", 
+           aes(label = paste("N =", ..count..)), 
+           vjust = -1) +
+  ylim(0, 100) +
+  theme_pander()
+```
 
 ## Cross Validated Predictions
 
@@ -531,47 +588,64 @@ for (i in seq(1, length(Y))) {
 }
 ```
 
+### Predicted vs. Observed
+
 Now, let's do a real predicted vs. observed graph:
 
-```{r, fig.width=5, fig.height=5}
+```{r, fig.width=6, fig.height=6}
 wcomparison <- tibble(Observed = Y,
-                     Predicted = Yp)
+                      Predicted = Yp,
+                      DiscretePredicted = ifelse(Yp < 0.5, 0, 1))
               
+wcomparison %<>% mutate(Accuracy = ifelse(DiscretePredicted == Observed,
+                                          "Correct", 
+                                          "Misclassified"))
+
+rval <- floor(100*cor(Y, Yp))/100
+
 p <- ggplot(wcomparison, aes(x=Predicted, y=Observed, 
-                             col=(abs(100*(Predicted-Observed)/Observed)))) +
-  geom_point(size=4, alpha=0.6) +
+                             col=Accuracy)) +
+  geom_point(size=4, alpha=0.6, 
+             position= position_jitter(height = 0.02)) +
   geom_abline(intercept = 0, slope = 1, 
               col="red",
               linetype="dashed") +
-  scale_color_viridis("% Absolute Error ", option="plasma", end=0.8) +
+  scale_color_d3() +
   theme_pander() +
-#  geom_smooth(method="lm") +
 
   theme(legend.position = "right") +
-#        legend.  = element_text()) +
-#  guides(col=guide_legend("Error")) +
+  guides(col=guide_legend("Classification")) +
   coord_fixed(xlim=c(0, 1), ylim=c(0, 1)) +
-  annotate("text", x=0.3, y=0.35,
-           label=paste("r(33) =", 
-                       floor(100*cor(Y, Yp))/100)) +
+  annotate("text", x=0.3, y=0.7,
+           label=paste("r(",
+                       length(Y),
+                       ") = ",
+                       rval,
+                       ", p < 0.001",
+                       sep="")) +
   ylab("Observed Strategy") +
   xlab("Predicted Strategy") +
   ggtitle("Decision Strategy:\nCross-Validation") +
   theme(legend.position = "bottom")
   
 ggMarginal(p, 
-           fill="blue", alpha=0.5,
+           fill="grey", 
+           alpha=0.75,
            type="density", #bins=13, 
-           col="blue",
+           col="darkgrey",
            margins = "both")
 
 ```
 
+### ROC
+
 And now, ROC to get the accuracy.
 
-```{r}
+```{r, fig.width=5, fig.height=5}
 wcomparison %<>% mutate(ROCPrediction = if_else(Predicted < 0.5, 0, 1))
-rocobj <- roc(wcomparison$ROCPrediction, wcomparison$Observed)
+
+rocobj <- roc(wcomparison$Observed, wcomparison$ROCPrediction)
+
 g <- ggroc(rocobj, col="red") +
   geom_point(aes(y=rocobj$sensitivities, x=rocobj$specificities), col="red", size=4, alpha=.5) +
   ggtitle("ROC Curve for Model") +
@@ -583,6 +657,60 @@ g
 ```
 
 The final accuracy of the prediction model is `r as.numeric(rocobj$auc)`
+
+### ROC Curve By Sliding Threshold
+
+To assess the robustness of our threshold, we can plot a ROC curve with specifities and sensitivities for sliding values of the prediction threshold.
+
+```{r}
+curve <- NULL
+
+for (threshold in seq(0, 1, 0.01)) {
+  subthreshold <- wcomparison %>%
+    mutate(Prediction = ifelse(Predicted > 1, 1, Predicted)) %>%
+    mutate(Prediction = ifelse(Prediction <= 0, 1e-204, Prediction)) %>%
+    mutate(Prediction = ifelse(Prediction <= threshold, 0, 1)) %>%
+    mutate(Accuracy = ifelse(Prediction == Observed, 1, 0)) %>%
+    group_by(Observed) %>%
+    summarise(Accuracy = mean(Accuracy))
+  
+  tnr <- subthreshold %>% 
+    filter(Observed == 0) %>% 
+    dplyr::select(Accuracy) %>%
+    as.numeric()
+  
+  tpr <- subthreshold %>% 
+    filter(Observed == 1) %>% 
+    dplyr::select(Accuracy) %>%
+    as.numeric()
+  
+  partial <- tibble(Threshold = threshold,
+                    TNR = tnr,
+                    TPR = tpr)
+  if (is.null(curve)) {
+    curve <- partial
+  } else {
+    curve <- rbind(curve, partial)
+  }
+}
+```
+
+And now, we can visualize the discrete ROC:
+
+```{r, fig.width=5, fig.height=5}
+ggplot(arrange(curve, TPR), aes(x=TNR, y=TPR)) + 
+  geom_point(size=2, col="red", alpha=0.5) + 
+  geom_line(col="red") + 
+  ylab("Sensitivity (True Positive Rate)") +
+  xlab("Specificity (True Negative Rate)") +
+  scale_x_reverse() +
+  # ylim(0, 1) +
+  # xlim(1, 0) +
+  ggtitle("ROC Curve for Different Thresholds") +
+  geom_abline(slope=1, intercept = 1, col="grey", linetype = "dashed") +
+  theme_pander()
+```
+
 
 ## Stability of Estimated Beta Weights
 
@@ -628,9 +756,11 @@ ggplot(lconnections, aes(x = reorder(Connection, Beta), y = Beta)) +
 
 # Testing the validity of the Lasso model
 
-To test the validity, we remove all the  connections with significant beta values, and check whether the results are still significant. 
+Here, we will examine the quality of our Lasso model bu doing a series of tests.
 
 ## Ablation test
+
+In the ablation test, we remove all the  connections with significant beta values, and check whether the results are still significant. 
 
 ```{r}
 XX <- X[, conn_betas$Beta == 0]
@@ -653,7 +783,7 @@ fit_wo.cv <- cv.glmnet(y = Y,
                        standardize=T,
                        type.measure = "class",
                        family = "binomial",
-                       
+                       grouped=F,
                        nfolds=length(Y)
 )
 ```
@@ -661,7 +791,6 @@ fit_wo.cv <- cv.glmnet(y = Y,
 The model does converge, but its overall classification error is much higher. 
 
 ```{r}
-#plot(fit_wo.cv)
 plot(fit_wo, sub="Beta Values for Connectivity")
 
 L1norm <- sum(abs(fit_wo$beta[,which(fit_wo$lambda==fit_wo.cv$lambda.1se)]))
@@ -716,30 +845,14 @@ vifs <- vif(mod)
 vifsT <- tibble(VIF = vifs)
 ```
 
-And, finally, we can plot an histogram of the distribution of VIF values. VIFs values < 10 are considered non-collinear; VIFs values < 5 are great.
+And, finally, we can plot an histogram of the distribution of VIF values. VIFs values < 10 are considered non-collinear; VIFs values < 5 are great. All of our factors have VIF values that a re _much_ smaller than 5, which implies that they are as close to a normal basis set as possible. 
 
 ```{r}
-ggplot(vifsT, aes(x=VIF)) +
-  geom_histogram(col="white", binwidth = 0.25, fill="blue", alpha=0.4) +
+ggplot(vifsT, aes( x =VIF)) +
+  geom_histogram(col="white", binwidth = 0.1, fill="blue", alpha=0.4) +
   theme_pander() +
   xlab("VIF Value") +
   ylab("Number of Predictors") +
   ggtitle("Distribution of Variance Inflation Factors")
 ```
 
-## Connectivity by Region
-
-Finally, we can look at how many connections exist for each region:
-
-```{r}
-rois <- c(vregion_from(connectome$connection), vregion_to(connectome$connection))
-rois_t <- tibble(roi = rois)
-rois_t %>%
-  group_by(roi) %>%
-  summarize(N = length(roi)) %>%
-  arrange(N) %>%
-  xtable() %>%
-  kable(digits = 5) %>%
-  kable_styling(bootstrap_options = c("striped", "hover"))
-
-```
