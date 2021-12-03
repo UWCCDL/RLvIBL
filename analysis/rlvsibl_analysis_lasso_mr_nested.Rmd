@@ -858,7 +858,13 @@ ggplot(vifsT, aes( x =VIF)) +
 
 # Nested Cross-Validation
 
-How well is the model doing? To investigate this, we can hand-craft a Leave-One Out regression model and save the predicted values of rate of forgetting as well as the recorded beta weights.
+Standard LOOV cross-validation suffers from data leakage: Since the same data is use for both validation (hyper-parameter fitting, in this case, the $\lambda$ parameter) and testing, success on testing is biased by the fact that validation was performed on the same sample.
+
+The canonical way to handle this problem is to have separate train-validate-test groups. This, however, runs into the problem of dividing the data properly and having a reduced sample.
+
+An alternative solutio is to do _nested_ cross-validation. In this case, the data is analyzed with two LOOV loops: at every turn, one subject is left out as a test subject, and the remaining N-1 are used for training and validation. This group is then again splitting one participant out for valiation and the remaining N-2 for training. The inner loop is performed until the validation is complete, at which point we use the hyper-parameters that guaratee best generalization to test the model on the the original, left-out participant. The process is repeated for every participant.  
+
+Note that different model (an a different profile of $\lambda$) is generated for every participat. To obtaine the bestmodel, we select first select the $\lambda_{1SE}$ value. If there are no regressors left (i.e., $N(\beta \neq 0) = 0$), we select $\lambda_{min}$. If we still have no regressors, we select the largest value of $\lambda$ for which at least one regressor is left $\neq0$.
 
 ```{r}
 N <- length(Y)
@@ -914,7 +920,7 @@ for (i in 1:N) {
   #print(fit.cv$lambda.min)
   #plot(fit.cv)
   if (length(B[B!=0])) {
-    print(c(i, length(B[B!=0])))
+    #print(c(i, length(B[B!=0])))
     dfX <- data.frame(cbind(Y, X[, B != 0]))
     lmod<-lm(Y ~ . + 1, data=dfX[-i,])
     #print(lmod)
@@ -928,6 +934,22 @@ for (i in 1:N) {
   Yp[i] <- yp
 }
 ```
+
+One of the problems of nested CV is that a different model is tested for each participant. To get a sense of the most predictive regressors, we can simply average across them:
+
+```{r}
+uB <- colMeans(betas)
+conn_betas <- as_tibble(data.frame(index=I$index, Beta=uB))
+connectome_nested <- order %>%
+  filter(index %in% I$index) %>%
+  inner_join(conn_betas) %>%
+  dplyr::select(-censor2) %>%
+  filter(Beta != 0) %>%
+  arrange(index)
+
+write_csv(connectome_nested, file="strategy_mr_nestd.csv")
+```
+
 
 
 ### Predicted vs. Observed
@@ -1001,3 +1023,55 @@ g
 
 The final accuracy of the prediction model is `r as.numeric(rocobj$auc)`
 
+### ROC Curve By Sliding Threshold
+
+To assess the robustness of our threshold, we can plot a ROC curve with specifities and sensitivities for sliding values of the prediction threshold.
+
+```{r}
+curve <- NULL
+
+for (threshold in seq(0, 1, 0.01)) {
+  subthreshold <- wcomparison %>%
+    mutate(Prediction = ifelse(Predicted > 1, 1, Predicted)) %>%
+    mutate(Prediction = ifelse(Prediction <= 0, 1e-204, Prediction)) %>%
+    mutate(Prediction = ifelse(Prediction <= threshold, 0, 1)) %>%
+    mutate(Accuracy = ifelse(Prediction == Observed, 1, 0)) %>%
+    group_by(Observed) %>%
+    summarise(Accuracy = mean(Accuracy))
+  
+  tnr <- subthreshold %>% 
+    filter(Observed == 0) %>% 
+    dplyr::select(Accuracy) %>%
+    as.numeric()
+  
+  tpr <- subthreshold %>% 
+    filter(Observed == 1) %>% 
+    dplyr::select(Accuracy) %>%
+    as.numeric()
+  
+  partial <- tibble(Threshold = threshold,
+                    TNR = tnr,
+                    TPR = tpr)
+  if (is.null(curve)) {
+    curve <- partial
+  } else {
+    curve <- rbind(curve, partial)
+  }
+}
+```
+
+And now, we can visualize the discrete ROC:
+
+```{r, fig.width=5, fig.height=5}
+ggplot(arrange(curve, TPR), aes(x=TNR, y=TPR)) + 
+  geom_point(size=2, col="red", alpha=0.5) + 
+  geom_line(col="red") + 
+  ylab("Sensitivity (True Positive Rate)") +
+  xlab("Specificity (True Negative Rate)") +
+  scale_x_reverse() +
+  # ylim(0, 1) +
+  # xlim(1, 0) +
+  ggtitle("ROC Curve for Different Thresholds") +
+  geom_abline(slope=1, intercept = 1, col="grey", linetype = "dashed") +
+  theme_pander()
+```
