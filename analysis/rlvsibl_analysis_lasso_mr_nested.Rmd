@@ -16,7 +16,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 library(tidyverse)
 library(dplyr)
 library(magrittr)
@@ -291,8 +291,8 @@ And now, let's visualize the histogram of the dependent variable we are trying t
 ```{r}
 dependent <- as_tibble(data.frame(strategy=Y))
 
-ggplot(dependent, aes(x = strategy, fill=as.factor(strategy))) +
-  geom_histogram(bins=8, col="white", alpha=0.5) +
+ggplot(dependent, aes(x = factor(strategy), fill=as.factor(strategy))) +
+  geom_bar(col="white", alpha=0.5, width = .5) +
   scale_fill_aaas() +
   xlab("Strategy") +
   ylab("Number of Participants") +
@@ -383,6 +383,8 @@ ggplot(lasso_df, aes(x=lambda, y=error)) +
   theme_pander() +
   theme(legend.position="right")
 ```
+
+The min $\lambda_{min}$ is `r fit.cv$lambda.1se`, The 1se min $\lambda_{min}$ is `r fit.cv$lambda.1se`
 
 ## Examining the Predictive Connectome
 
@@ -1074,4 +1076,157 @@ ggplot(arrange(curve, TPR), aes(x=TNR, y=TPR)) +
   ggtitle("ROC Curve for Different Thresholds") +
   geom_abline(slope=1, intercept = 1, col="grey", linetype = "dashed") +
   theme_pander()
+```
+
+
+--- 
+
+# Quantatative Connectivity Analysis
+
+We can look at whether there are difference in connectivity between individuals vs. procedural individuals using quantitative methods
+
+### Connectivity by Region
+```{r eval=FALSE}
+
+# skip this block
+connectome %>%
+  #filter(connection_type != 'Within') %>%
+  mutate(Group = if_else(Beta >= 0, 'Declarative', 'Procedural')) %>%
+  group_by(network_names, connection_type, Group) %>%
+  summarise(n= n()) %>%
+  mutate(freq = n / sum(n)) %>%
+  #arrange(desc(freq, Group, network_names)) %>%
+
+  ggplot(aes(x=network_names, y=freq)) +
+  geom_bar(aes(fill = Group), stat = "identity", width=.4, position = position_stack()) +
+  facet_grid(network_names~.) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ 
+```
+
+```{r}
+# only positive betas (declarative individuals)
+
+# using 95% confidence interval
+lowerBeta <- t.test(connectome$Beta, conf.level = .95)$conf.int[1]
+upperBeta <- t.test(connectome$Beta, conf.level = .95)$conf.int[2]
+
+# using 0
+lowerBeta <- 0
+upperBeta <- 0
+
+connectome_beta_positive <- connectome %>% subset(Beta>upperBeta)
+connectome_beta_negative <- connectome %>% subset(Beta<lowerBeta)
+
+lROIs_beta_positive <- unique(c(vregion_from(connectome_beta_positive$connection),
+                  vregion_to(connectome_beta_positive$connection)))
+
+rois_beta_positive <- power2011[lROIs_beta_positive, ]
+
+roi_stats_beta_positive <- rois_beta_positive %>%
+  group_by(NetworkName, Color) %>%
+  summarise(N=length(Color)/length(lROIs_beta_positive)) %>%
+  # keep all network in
+  right_join(power2011 %>% distinct(NetworkName, Color)) %>% 
+  add_column(Source="beta_positive") %>%
+  mutate(N = replace_na(N, 0)) %>%
+  arrange(NetworkName)
+
+#power2011 %>%
+#  mutate(beta_positive = ROI %in% lROIs_beta_positive) %>%
+#  group_by(NetworkName, Color, beta_positive) %>%
+#  summarise(N=length(Color)/length(lROIs_beta_positive)) %>%
+#  add_column(Source="beta_positive") %>%
+#  filter(beta_positive==T)
+```
+
+```{r}
+lROIs_beta_negative <- unique(c(vregion_from(connectome_beta_negative$connection),
+                  vregion_to(connectome_beta_negative$connection)))
+rois_beta_negative <- power2011[lROIs_beta_negative, ]
+
+roi_stats_beta_negative <- rois_beta_negative %>%
+  group_by(NetworkName, Color) %>%
+  summarise(N=length(Color)/length(lROIs_beta_negative)) %>%
+  # keep all network in
+  right_join(power2011 %>% distinct(NetworkName, Color)) %>% 
+  add_column(Source="beta_negative") %>%
+  mutate(N = replace_na(N, 0)) %>%
+  arrange(NetworkName)
+  
+noi_stats %>%
+  rbind(roi_stats_beta_positive) %>%
+  rbind(roi_stats_beta_negative) %>%
+  ggplot(aes(x="", y=N, fill=NetworkName)) +
+  geom_bar(stat = "identity", col="white", width=1) +
+  facet_grid(~Source, labeller = label_both) +
+  coord_polar("y", start=0) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 2L)) +
+  #scale_fill_viridis(discrete = T) +
+  scale_fill_ucscgb() +
+  ylab("") +
+  xlab("") +
+  ggtitle("Distriution of Regions") +
+  #geom_text_repel(aes(label=percent(N, .01)), col="black",
+  #          position=position_stack(vjust=1), size=3)+
+  theme_pander() +
+  guides(fill=guide_legend(ncol=2)) +
+  theme(legend.position = "bottom")
+
+```
+Looking at positive beta networks vs. negative beta network, there is no difference in ROI distribution 
+
+```{r}
+chisq.test(roi_stats_beta_positive$N*length(lROIs_beta_positive), p = noi_stats$N)
+chisq.test(roi_stats_beta_negative$N*length(lROIs_beta_negative), p = noi_stats$N)
+
+chisq.test(x = roi_stats_beta_positive$N*length(lROIs_beta_positive), 
+           y = roi_stats_beta_negative$N*length(lROIs_beta_negative))
+
+```
+
+
+Next, look at the between/within distribution
+
+```{r}
+connectome_stats_beta_positive <- connectome_beta_positive %>%
+  group_by(connection_type) %>% 
+  summarise(N=length(index), P=length(index)/dim(connectome_beta_positive)[1]) %>%
+  add_column(Source = "beta_positive")
+
+connectome_stats_beta_negative <- connectome_beta_negative %>%
+  group_by(connection_type) %>% 
+  summarise(N=length(index), P=length(index)/dim(connectome_beta_negative)[1]) %>%
+  add_column(Source = "beta_negative")
+
+
+```
+
+```{r}
+coi_stats %>%
+  rbind(connectome_stats_beta_positive) %>%
+  rbind(connectome_stats_beta_negative) %>%
+  ggplot(aes(x="", y=P, fill=connection_type)) +
+  geom_bar(stat = "identity", col="grey", width=1) +
+  facet_grid(~Source, labeller = label_both) +
+  coord_polar("y", start=0) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 2L)) +
+  scale_fill_jama() +
+  scale_color_jama() +
+  ylab("") +
+  xlab("") +
+  ggtitle("Distribuction of Connectivity\n(Within/Between Networks)") +
+  geom_text_repel(aes(label=percent(P, .1)), col="white",
+            position=position_stack(vjust=1), size=3)+
+  theme_pander() +
+  theme(legend.position = "bottom")
+```
+
+The distribution is different from Power 2011, but there is no difference between declarative vs. procedural network
+```{r}
+chisq.test(connectome_stats_beta_positive$N, p=coi_stats$P)
+chisq.test(connectome_stats_beta_negative$N, p=coi_stats$P)
+
+chisq.test(x = connectome_stats_beta_positive$N, p = connectome_stats_beta_negative$P)
+chisq.test(p = connectome_stats_beta_positive$P, x = connectome_stats_beta_negative$N)
 ```
