@@ -16,7 +16,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE)
 library(tidyverse)
 library(dplyr)
 library(magrittr)
@@ -36,6 +36,13 @@ library(scales)
 library(car)
 library(pROC)
 library(patchwork)      # Multi-plot alignment
+library(brainconn)
+library(igraph)
+library(network)
+library(brainconn)
+library(brainGraph)
+library(RColorBrewer)
+library(networkD3)
 #library(data.table)
 
 ```
@@ -868,7 +875,7 @@ An alternative solutio is to do _nested_ cross-validation. In this case, the dat
 
 Note that different model (an a different profile of $\lambda$) is generated for every participat. To obtaine the bestmodel, we select first select the $\lambda_{1SE}$ value. If there are no regressors left (i.e., $N(\beta \neq 0) = 0$), we select $\lambda_{min}$. If we still have no regressors, we select the largest value of $\lambda$ for which at least one regressor is left $\neq0$.
 
-```{r}
+```{r eval=FALSE}
 N <- length(Y)
 P <- ncol(X)
 betas <- matrix(rep(0, P * N), nrow = N)
@@ -939,7 +946,7 @@ for (i in 1:N) {
 
 One of the problems of nested CV is that a different model is tested for each participant. To get a sense of the most predictive regressors, we can simply average across them:
 
-```{r}
+```{r eval=FALSE}
 uB <- colMeans(betas)
 conn_betas <- as_tibble(data.frame(index=I$index, Beta=uB))
 connectome_nested <- order %>%
@@ -952,7 +959,9 @@ connectome_nested <- order %>%
 write_csv(connectome_nested, file="strategy_mr_nestd.csv")
 ```
 
-
+```{r}
+#load("./rlvsibl_analysis_lasso_mr_nested_followup_cache/cache_chunk62.RData")
+```
 
 ### Predicted vs. Observed
 
@@ -1085,7 +1094,7 @@ ggplot(arrange(curve, TPR), aes(x=TNR, y=TPR)) +
 
 We can look at whether there are difference in connectivity between individuals vs. procedural individuals using quantitative methods
 
-### Connectivity by Region
+### Beta Distriburion by Region
 ```{r eval=FALSE}
 
 # skip this block
@@ -1177,10 +1186,14 @@ noi_stats %>%
 Looking at positive beta networks vs. negative beta network, there is no difference in ROI distribution 
 
 ```{r}
-chisq.test(roi_stats_beta_positive$N*length(lROIs_beta_positive), p = noi_stats$N)
-chisq.test(roi_stats_beta_negative$N*length(lROIs_beta_negative), p = noi_stats$N)
+chisq.test(roi_stats_beta_positive$N*length(lROIs_beta_positive), p = noi_stats$N, simulate.p.value = T)
+chisq.test(roi_stats_beta_negative$N*length(lROIs_beta_negative), p = noi_stats$N, simulate.p.value = T)
 
 chisq.test(x = roi_stats_beta_positive$N*length(lROIs_beta_positive), 
+           y = roi_stats_beta_negative$N*length(lROIs_beta_negative), 
+           simulate.p.value = T)
+
+fisher.test(x = roi_stats_beta_positive$N*length(lROIs_beta_positive), 
            y = roi_stats_beta_negative$N*length(lROIs_beta_negative))
 
 ```
@@ -1224,9 +1237,707 @@ coi_stats %>%
 
 The distribution is different from Power 2011, but there is no difference between declarative vs. procedural network
 ```{r}
-chisq.test(connectome_stats_beta_positive$N, p=coi_stats$P)
-chisq.test(connectome_stats_beta_negative$N, p=coi_stats$P)
+chisq.test(connectome_stats_beta_positive$N, p=coi_stats$P, simulate.p.value = T)
+chisq.test(connectome_stats_beta_negative$N, p=coi_stats$P, simulate.p.value = T)
 
-chisq.test(x = connectome_stats_beta_positive$N, p = connectome_stats_beta_negative$P)
-chisq.test(p = connectome_stats_beta_positive$P, x = connectome_stats_beta_negative$N)
+chisq.test(x = connectome_stats_beta_positive$N, p = connectome_stats_beta_negative$P, simulate.p.value = T)
+chisq.test(p = connectome_stats_beta_positive$P, x = connectome_stats_beta_negative$N, simulate.p.value = T)
+```
+
+### W Distribution by Region
+
+Beta matrix B
+```{r}
+# convert connectom to a 264*264 matrix
+connectom2matrix <- function(connectome) {
+  empty_mat <- matrix(0, 264, 264, dimnames = list(paste0("X", 1:264), paste0("X", 1:264))) 
+  connectome <- connectome %>% 
+  mutate(connection_from = as.integer(purrr::map_chr(connection, ~strsplit(., "-")[[1]][1])),
+         connection_to = as.integer(purrr::map_chr(connection, ~strsplit(., "-")[[1]][2])))
+  for (row in 1:nrow(connectome)) {
+    Beta <- connectome[row, "Beta"][[1]]
+    connection_from <- connectome[row, "connection_from"][[1]]
+    connection_to <- connectome[row, "connection_to"][[1]]
+    empty_mat[connection_from, connection_to] <- Beta
+    #empty_mat[connection_to, connection_from] <- Beta  # make symmetric matrix
+  }
+  return(empty_mat)
+}
+
+connectom2Bmatrix <- function(connectome) {
+  empty_mat <- matrix(0, 264, 264, dimnames = list(paste0("X", 1:264), paste0("X", 1:264))) 
+  empty_mat[connectome$index] <- connectome$Beta
+  return(empty_mat)
+}
+connectom2Wmatrix <- function(connectome) {
+  empty_mat <- matrix(0, 264, 264, dimnames = list(paste0("X", 1:264), paste0("X", 1:264))) 
+  empty_mat[connectome$index] <- connectome$W
+  return(empty_mat)
+}
+connectom2Amatrix <- function(connectome) {
+  empty_mat <- matrix(0, 264, 264, dimnames = list(paste0("X", 1:264), paste0("X", 1:264))) 
+  empty_mat[connectome$index] <- connectome$A
+  return(empty_mat)
+}
+
+# convert a 264*264 matrix back to connectom df
+matrix2connectom <- function(mat, connectome, col_name) {
+  connectome$temp = mat[connectome$index]
+  connectome <- rename(connectome, !!col_name := temp)
+  return(connectome)
+}
+
+# make the matrix symmetric
+make_symmetric <- function(m) {
+  # lower.tri is 0.0
+  m[lower.tri(m)] <- t(m)[lower.tri(m)]
+  return(m)
+}
+
+B_mat <- connectom2Bmatrix(connectome)
+#sum(B_mat!=0)
+```
+
+
+Calculate averaged corr matrix across participants: A
+
+The averaged correlation coefficients across subjects were calculated by first transforming each r value into a z-value, and then retransforming the average z value back into an equivalent r value using the hyperbolic tangent transformation (Silver & Dunlap, 1987).  
+
+Using N = `r dim(X)[1]`xM = `r dim(X)[2]` dataframe, N=number of subjects; obtaining a result matrix A=264*264
+
+Importantly, we used after filtered X functional conectivity matrix (178 x 622), rather than original one to calculate averaged matrix A
+```{r}
+# z transform vector
+X.flat <- matrix(0, nrow = dim(C)[1], ncol = dim(C)[2])
+X.flat[,as_vector(I)] <- C[,as_vector(I)]
+X.flat <- X.flat[keep_X, ]  # only keep subjects who have rsfc --> 176 subj
+
+# calculate column mean
+X.colMean <- colMeans(X.flat)
+
+# back-transform to matrix 264*264 with tanh
+X.mat <- matrix(X.colMean, nrow=264,ncol=264,byrow=FALSE) # already double-checked, correct matrix back-transform
+A_mat <- tanh(X.mat)
+#sum(A_mat!=0)
+```
+
+
+Group-level weighted matrix W
+
+```{r}
+W_mat <- data.frame(A_mat * B_mat)
+W_mat[lower.tri(W_mat)] <- t(W_mat)[lower.tri(W_mat)]
+
+#typeof(W_mat)
+sum(W_mat!=0)
+#which(W_mat!=0,arr.ind = T)
+
+# column and row names 
+colnames(W_mat) <- paste0("ROI",seq(1,264))
+rownames(W_mat) <- paste0("ROI",seq(1,264))
+```
+
+Merge Beta, A, W 
+
+```{r}
+# W matrix
+connectome.full <- connectome %>%
+  merge(matrix2connectom(A_mat, connectome, "A"), by=colnames(connectome)) %>%
+  merge(matrix2connectom(as.matrix(W_mat), connectome, "W"), by=colnames(connectome))
+
+connectome_beta_positive <- connectome.full %>% subset(Beta>upperBeta)
+connectome_beta_negative <- connectome.full %>% subset(Beta<lowerBeta)
+
+# positive network in W
+lROIs_beta_positive <- unique(c(vregion_from(connectome_beta_positive$connection),
+                  vregion_to(connectome_beta_positive$connection)))
+
+rois_beta_positive <- power2011[lROIs_beta_positive, ]
+
+roi_stats_beta_positive <- rois_beta_positive %>%
+  group_by(NetworkName, Color) %>%
+  summarise(N=length(Color)/length(lROIs_beta_positive)) %>%
+  # keep all network in
+  right_join(power2011 %>% distinct(NetworkName, Color)) %>% 
+  add_column(Source="W_positive") %>%
+  mutate(N = replace_na(N, 0)) %>%
+  arrange(NetworkName)
+
+# negative network in W
+lROIs_beta_negative <- unique(c(vregion_from(connectome_beta_negative$connection),
+                  vregion_to(connectome_beta_negative$connection)))
+rois_beta_negative <- power2011[lROIs_beta_negative, ]
+
+roi_stats_beta_negative <- rois_beta_negative %>%
+  group_by(NetworkName, Color) %>%
+  summarise(N=length(Color)/length(lROIs_beta_negative)) %>%
+  # keep all network in
+  right_join(power2011 %>% distinct(NetworkName, Color)) %>% 
+  add_column(Source="W_negative") %>%
+  mutate(N = replace_na(N, 0)) %>%
+  arrange(NetworkName)
+```
+
+Visualize distribution of W connections
+```{r}
+noi_stats %>%
+  rbind(roi_stats_beta_positive) %>%
+  rbind(roi_stats_beta_negative) %>%
+  ggplot(aes(x="", y=N, fill=NetworkName)) +
+  geom_bar(stat = "identity", col="white", width=1) +
+  facet_grid(~Source, labeller = label_both) +
+  coord_polar("y", start=0) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 2L)) +
+  #scale_fill_viridis(discrete = T) +
+  scale_fill_ucscgb() +
+  ylab("") +
+  xlab("") +
+  ggtitle("Distriution of Regions") +
+  #geom_text_repel(aes(label=percent(N, .01)), col="black",
+  #          position=position_stack(vjust=1), size=3)+
+  theme_pander() +
+  guides(fill=guide_legend(ncol=2)) +
+  theme(legend.position = "bottom")
+```
+
+None of the tests show significant results
+````{r}
+chisq.test(roi_stats_beta_positive$N*length(lROIs_beta_positive), p = noi_stats$N, simulate.p.value = TRUE)
+
+chisq.test(roi_stats_beta_negative$N*length(lROIs_beta_negative), p = noi_stats$N, simulate.p.value = TRUE)
+
+chisq.test(x = roi_stats_beta_positive$N*length(lROIs_beta_positive), 
+           y = roi_stats_beta_negative$N*length(lROIs_beta_negative),
+           simulate.p.value = TRUE)
+
+fisher.test(x = roi_stats_beta_positive$N*length(lROIs_beta_positive), 
+           y = roi_stats_beta_negative$N*length(lROIs_beta_negative))
+
+```
+
+
+The between/within distribution of W is exactly same as Beta matrix. This is not surprisingly because most of corr values in A matrix are positive, suggesting that the signs in W and B should be pretty much same. 
+
+```{r}
+connectome_stats_beta_positive <- connectome_beta_positive %>%
+  group_by(connection_type) %>% 
+  summarise(N=length(index), P=length(index)/dim(connectome_beta_positive)[1]) %>%
+  add_column(Source = "W_positive")
+
+connectome_stats_beta_negative <- connectome_beta_negative %>%
+  group_by(connection_type) %>% 
+  summarise(N=length(index), P=length(index)/dim(connectome_beta_negative)[1]) %>%
+  add_column(Source = "W_negative")
+
+coi_stats %>%
+  rbind(connectome_stats_beta_positive) %>%
+  rbind(connectome_stats_beta_negative) %>%
+  ggplot(aes(x="", y=P, fill=connection_type)) +
+  geom_bar(stat = "identity", col="grey", width=1) +
+  facet_grid(~Source, labeller = label_both) +
+  coord_polar("y", start=0) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 2L)) +
+  scale_fill_jama() +
+  scale_color_jama() +
+  ylab("") +
+  xlab("") +
+  ggtitle("Distribuction of Connectivity\n(Within/Between Networks)") +
+  geom_text_repel(aes(label=percent(P, .1)), col="white",
+            position=position_stack(vjust=1), size=3)+
+  theme_pander() +
+  theme(legend.position = "bottom")
+```
+
+
+---
+
+# Graph Analysis
+
+### iGraph
+
+```{r}
+connectome_network <- connectome.full %>%
+  #dplyr::select(network) %>%
+  mutate(new_network = str_replace_all(network, c("^-1"="0", "--1$"="-0"))) %>%
+  separate(new_network, remove=F, sep = "-", into = c("network_from", "network_to")) %>%
+  separate(connection, remove=F, sep = "-", into = c("connection_from", "connection_to")) %>%
+  arrange(network_from, network_to)
+
+# select cols
+roi_links <- connectome_network %>%
+  dplyr::select(connection_from, connection_to, W, network_names)
+# rename cols
+colnames(roi_links) <- c("from", "to", "weight", "type")
+
+roi_nodes <- power2011 %>% rename(id = ROI) %>%
+  mutate(NetworkName=as.factor(NetworkName), 
+         Color=factor(Color),
+         Network=ifelse(Network==-1, 0, Network))
+levels(roi_nodes$Color) <- sample(colors(T), 14) 
+
+# create a graph
+net <- graph_from_data_frame(d=roi_links, vertices=roi_nodes, directed=F) 
+#g <- graph_from_adjacency_matrix(W_mat,, mode = "upper")
+```
+
+Plot connection based on network color
+```{r}
+plot(net, 
+     # === vertex
+      vertex.color=V(net)$Color, 
+      vertex.frame.color = "gray85",
+      vertex.shape="circle",
+      vertex.size=igraph::degree(net) *10,
+      #vertex.size2=NA,
+     
+     # === vertex label
+      vertex.label=NA,                   # Character vector used to label the nodes
+      vertex.label.color="black", #V(nnet)$colors,
+      vertex.label.family="Arial",                  # Font family of the label (e.g.“Times”, “Helvetica”)
+      vertex.label.font=2,                          # Font: 1 plain, 2 bold, 3, italic, 4 bold italic, 5 symbol
+      vertex.label.cex=1,                           # Font size (multiplication factor, device-dependent)
+      vertex.label.dist=2,                          # Distance between the label and the vertex
+      vertex.label.degree=90, 
+     
+     # === Edge
+      edge.color=c("dark red", "slategrey")[as.numeric(E(net)$weight<0)+1], # gray <0, red > 0                           # Edge color
+      edge.width=abs(E(net)$weight)*10,            # Edge width, defaults to 1
+      edge.arrow.size=1,                            # Arrow size, defaults to 1
+      edge.arrow.width=NA,      # Arrow width, defaults to 1
+      edge.lty="solid",                             # Line type, could be 0 or “blank”, 1 or “solid”, 2 or “dashed”, 3 or “dotted”, 4 or “dotdash”, 5 or “longdash”, 6 or “twodash”
+      edge.curved=0.3,  
+     
+     layout=layout_in_circle) 
+legend("right", legend=unique(V(net)$NetworkName), col=unique(V(net)$Color), pch=19, title= "Networks",cex=.8,
+       inset=c(-0.1,0)) 
+
+
+```
+
+
+Look at networks in different layouts
+
+```{r}
+layouts <- grep("^layout_", ls("package:igraph"), value=TRUE)[-1] 
+
+# Remove layouts that do not apply to our graph.
+layouts <- layouts[!grepl("bipartite|components|drl|kk|sugiyama", layouts)]
+
+par(mfrow=c(3,3), mar=c(1,1,1,1))
+for (layout in layouts) {
+  #print(layout)
+  l <- do.call(layout, list(net)) 
+  plot(net, edge.arrow.mode=0, layout=l, main=layout,
+       vertex.color=V(net)$Color,
+       vertex.label=NA,
+       vertex.size=igraph::degree(net) *10,
+       edge.color=c("dark red", "slategrey")[as.numeric(E(net)$weight<0)+1],
+       edge.width=abs(E(net)$weight)*10, 
+       edge.curved=0.3) }
+``` 
+
+
+```{r}
+
+# select cols
+net_links <- connectome_network %>%
+  filter(connection_type=="Between") %>%
+  dplyr::select(network_from, network_to, W, connection_type)
+# rename cols
+colnames(net_links) <- c("from", "to", "weight", "type")
+
+# reformat colors
+net_nodes <- power2011 %>% 
+  mutate(name=factor(NetworkName), 
+         colors=tolower(Color),
+         colors=if_else(colors=="white", "wheat", colors),
+         colors=if_else(colors=="teal", "tomato2", colors),
+         colors=if_else(colors=="pale blue", "steelblue", colors),
+         id=ifelse(Network==-1, 0, Network), 
+         colors=factor(colors)) %>%
+  distinct(id, name, colors) %>% as.data.frame() %>% 
+  dplyr::select(id, name, colors) %>% arrange(id)
+#levels(roi_nodes$Color) <- sample(colors(T), 14) 
+
+# add a n for networkID
+net_links <- net_links %>% mutate(from = paste("n", from, sep = ""), to = paste("n", to, sep = ""))
+net_nodes <- net_nodes %>% mutate(id = paste("n", id, sep = ""))
+
+# create a graph
+nnet <- graph_from_data_frame(d=net_links, vertices=net_nodes, directed=FALSE)
+```
+
+This plot shows all network distribution. Red links represent positive W (Declarative networks), Gray links represent negative W(Procedural networks).
+
+
+```{r fig.width=10, fig.height=15}
+# plot
+plot(nnet, 
+      # === vertex
+      vertex.color=V(nnet)$colors, 
+      vertex.frame.color = "gray85",
+      vertex.shape="circle",
+      vertex.size=20,
+      vertex.size2=NA,
+     
+      # === vertex label
+      vertex.label=V(nnet)$name,                   # Character vector used to label the nodes
+      vertex.label.color="black", #V(nnet)$colors,
+      vertex.label.family="Arial",                  # Font family of the label (e.g.“Times”, “Helvetica”)
+      vertex.label.font=2,                          # Font: 1 plain, 2 bold, 3, italic, 4 bold italic, 5 symbol
+      vertex.label.cex=1,                           # Font size (multiplication factor, device-dependent)
+      vertex.label.dist=2,                          # Distance between the label and the vertex
+      vertex.label.degree=90,                        # The position of the label in relation to the vertex (use pi)
+    
+      # === Edge
+      edge.color=c("dark red", "slategrey")[as.numeric(E(nnet)$weight<0)+1], # gray <0, red > 0                           # Edge color
+      edge.width=abs(E(nnet)$weight)*20,            # Edge width, defaults to 1
+      edge.arrow.size=1,                            # Arrow size, defaults to 1
+      edge.arrow.width=NA,      # Arrow width, defaults to 1
+      edge.lty="solid",                             # Line type, could be 0 or “blank”, 1 or “solid”, 2 or “dashed”, 3 or “dotted”, 4 or “dotdash”, 5 or “longdash”, 6 or “twodash”
+      edge.curved=0.3,                              # Edge curvature, range 0-1 (FALSE sets it to 0, TRUE to 0.5)
+     
+     layout = layout.circle)
+#legend(legend=V(nnet)$name, col=V(nnet)$colors,
+#       text.col = "black", horiz = F , pt.cex=2, cex=1.2, bty="n", pch = 21, ncol=2,
+#       omset=3)
+legend("bottom", legend=V(nnet)$name, col=V(nnet)$colors, pch=19, title= "Networks", ncol = 2, cex=1)
+```
+
+
+
+### Circlize
+
+Look at positive  W and negative W networks
+
+```{r fig.height=7, fig.width=7}
+library(circlize)
+# reform power power2011
+power_atals <- power2011 %>% 
+  rename(ROI.Name = ROI, x.mni=X, y.mni=Y, z.mni=Z, network=NetworkName) %>% 
+  mutate(ROI.Name=as.integer(ROI.Name), index = as.integer(ROI.Name),
+         x.mni=as.integer(x.mni), y.mni=as.integer(y.mni), z.mni=as.numeric(z.mni)) %>%
+  dplyr::select(ROI.Name, x.mni, y.mni, z.mni, network, index)
+
+
+ 
+W_mat2 <- make_symmetric(connectom2Wmatrix(connectome.full))
+rownames(W_mat2) = power_atals$network
+colnames(W_mat2) = power_atals$network
+
+colors14 = c(brewer.pal(name="Set1", n = 9), brewer.pal(name="Set2", n = 9))[1:14]
+
+chordDiagram(W_mat2, directional = FALSE, transparency = 0.5, self.link = 1, symmetric = TRUE, scale = T, grid.col = colors14, col = ifelse(W_mat2>0, "tomato2", "white"))
+  title("Network connections: Declarative (Positive W)")
+
+```
+
+
+```{r fig.height=7, fig.width=7}
+chordDiagram(W_mat2, directional = FALSE, transparency = 0.5, self.link = 1, symmetric = TRUE, scale = T, 
+             grid.col = colors14, col = ifelse(W_mat2<0, "steelblue", "white"))
+title("Network connections: Procedural (Negative W)")
+```
+
+
+```{r fig.height=7, fig.width=7}
+chordDiagram(W_mat2, directional = FALSE, transparency = 0.5, self.link = 1, symmetric = TRUE, scale = T, 
+             grid.col = colors14, col = ifelse(W_mat2>0, "tomato2", "steelblue"))
+             #annotationTrackHeight=mm_h(c(5, 2)))
+title("Network connections: Full W")
+```
+
+```{r fig.height=15, fig.width=15}
+circos.clear()
+
+W_mat3 <- W_mat2
+colnames(W_mat3) <- paste(colnames(W_mat2),1:264, sep = "")
+rownames(W_mat3) <- paste(rownames(W_mat2),1:264, sep = "")
+#W_mat3
+
+nm = unique(unlist(dimnames(W_mat3)))
+group = structure(gsub("\\d", "", nm), names = nm)
+group = factor(group[sample(length(group), length(group))], levels = unique(power_atals$network))
+
+
+#grid.col = structure(c(rep(2, 5), rep(3, 5), rep(4, 5)), names = c(paste0("A", 1:5), paste0("B", 1:5), paste0("C", 1:5)))
+chordDiagram(W_mat3, directional = FALSE, transparency = .5, self.link = 2, symmetric = TRUE, scale = T, 
+             col = ifelse(W_mat2>0, "tomato2", "steelblue"), annotationTrack = c("grid"),
+             preAllocateTracks = list(track.height = mm_h(4), track.margin = c(mm_h(4), 0)))
+
+circos.track(track.index = 2, panel.fun = function(x, y) {
+    sector.index = get.cell.meta.data("sector.index")
+    xlim = get.cell.meta.data("xlim")
+    ylim = get.cell.meta.data("ylim")
+    xplot = get.cell.meta.data("xplot")
+    
+    #print(sector.index)
+    
+    #circos.text(mean(xlim), 1, sector.index, niceFacing = TRUE, adj = c(-0.5, 0))
+    circos.text(mean(xlim), mean(ylim), gsub(pattern = "\\D", "", sector.index), cex = .8, facing = "clockwise", niceFacing = TRUE, adj = c(-1, 0))
+}, bg.border = NA)
+
+
+```
+### Network and node desciptives
+
+#### Density
+
+The proportion of present edges from all possible edges in the network.
+
+
+```{r}
+net.d <- net - E(net)[E(net)$weight<0]
+net.p <- net - E(net)[E(net)$weight>0]
+
+data.frame("edge_density"=c(edge_density(net.d, loops=F), 
+                            edge_density(net.p, loops=F),
+                            edge_density(net, loops=F)), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full"))) %>%
+  ggplot(aes(x=network, y=edge_density, fill=network)) +
+  geom_col(width = .5) +
+  geom_text(aes(label=round(edge_density, 5)), position = position_dodge(width = 0.5), vjust = -0.5) +
+  theme_pander()
+```
+
+
+
+#### Diameter
+
+A network diameter is the longest geodesic distance (length of the shortest path between two nodes) in the network. In igraph, diameter() returns the distance, while get_diameter() returns the nodes along the first found path of that distance.
+
+
+```{r}
+# make negative weights to positive
+net.p.abs <- net.p
+E(net.p.abs)$weight <- E(net.p.abs)$weight * (-1)
+
+# make negative weights to positive
+net.abs <- net
+E(net.abs)$weight[E(net.abs)$weight<0] <- E(net.abs)$weight[E(net.abs)$weight<0] * (-1)
+
+
+data.frame("diameter"=c(diameter(net.d, directed=F), 
+                        diameter(net.p.abs, directed=F),
+                        diameter(net.abs, directed=T)), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full"))) %>%
+  ggplot(aes(x=network, y=diameter, fill=network)) +
+  geom_col(width = .5) +
+  geom_text(aes(label=round(diameter, 2)), position = position_dodge(width = 0.5), vjust = -0.5) +
+  theme_pander()
+
+```
+
+
+#### Centrality & centralization
+
+Centrality functions (vertex level) and centralization functions (graph level). The centralization functions return res - vertex centrality, centralization, and theoretical_max - maximum centralization score for a graph of that size. The centrality function can run on a subset of nodes (set with the vids parameter). This is helpful for large graphs where calculating all centralities may be a resource-intensive and time-consuming task.
+
+Centrality is a general term that relates to measures of a node’s position in the network. There are many such centrality measures, and it can be a daunting task to wade through all of the different ways to measure a node’s importance in the network. Here, we will introduce just a few examples.
+
+
+
+
+
+#### Degree
+
+Degree centrality is simply the number of edges connected to a given node. In a social network, this might mean the number of friends an individual has. We can calculate degree centrality with a simple function: `degree()`
+
+
+```{r}
+data.frame("centr_degree"=c(centr_degree(net.d, normalized=T)$centralization, 
+                        centr_degree(net.p, normalized=T)$centralization,
+                        centr_degree(net, normalized=T)$centralization), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full"))) %>%
+  ggplot(aes(x=network, y=centr_degree, fill=network)) +
+  geom_col(width = .5) +
+  geom_text(aes(label=round(centr_degree, 4)), position = position_dodge(width = 0.5), vjust = -0.5) +
+  theme_pander()
+
+```
+
+
+In weighted networks, we can also node strength, which is the sum of the weights of edges connected to the node. Let’s calculate node strength and plot the node sizes as proportional to these values.
+
+
+#### Betweeness
+
+Let’s now do the same for betweenness centrality, which is defined as the number of geodesic paths (shortest paths) that go through a given node. Nodes with high betweenness might be influential in a network if, for example, they capture the most amount of information flowing through the network because the information tends to flow through them. Here, we use the normalized version of betweenness.
+
+
+
+```{r}
+```
+
+Closeness (centrality based on distance to others in the graph)
+Inverse of the node’s average geodesic distance to others in the network.
+
+```{r}
+data.frame("centr_clo"=c(centr_clo(net.d)$centralization, 
+                        centr_clo(net.p)$centralization,
+                        centr_clo(net)$centralization), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full"))) %>%
+  ggplot(aes(x=network, y=centr_clo, fill=network)) +
+  geom_col(width = .5) +
+  geom_text(aes(label=round(centr_clo, 8)), position = position_dodge(width = 0.5), vjust = -0.5) +
+  theme_pander()
+
+```
+
+#### Distances
+
+```{r}
+
+data.frame("mean_distance"=c(mean_distance(net.d, directed=F), 
+                        mean_distance(net.p, directed=F),
+                        mean_distance(net, directed=F)), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full"))) %>%
+  ggplot(aes(x=network, y=mean_distance, fill=network)) +
+  geom_col(width = .5) +
+  geom_text(aes(label=round(mean_distance, 4)), position = position_dodge(width = 0.5), vjust = -0.5) +
+  theme_pander()
+```
+
+
+
+#### Assortativity
+
+
+
+```{r}
+
+data.frame("assortativity_degree"=c(assortativity_degree(net.d, directed=F), 
+                        assortativity_degree(net.p, directed=F),
+                        assortativity_degree(net, directed=F)), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full"))) %>%
+  ggplot(aes(x=network, y=assortativity_degree, fill=network)) +
+  geom_col(width = .5) +
+  geom_text(aes(label=round(assortativity_degree, 4)), position = position_dodge(width = 0.5), vjust = -0.5) +
+  theme_pander()
+```
+
+
+
+### Hierarchical edge bundling
+
+This package has some bugs. 
+
+1. The weight of connection cannot be set
+2. The color of connection is not set by weight values(W)
+
+
+```{r}
+# create a data frame giving the hierarchical structure of your individuals
+d1 <- data.frame(from="origin", to=unique(power_atals$network))
+d2 <- data.frame(from=power_atals$network, to=power_atals$index)
+hierarchy <- rbind(d1, d2)
+
+# create a dataframe with connection between leaves (individuals)
+all_leaves <- seq(1,264)
+connect <- connectome_network %>% mutate(from=connection_from, to=connection_to, weight=W) %>% dplyr::select(from, to, weight)
+
+# connection from weights
+cf <- connectome_network %>% 
+  dplyr::select(connection_from, W) %>%
+  right_join(data.frame(connection_from=as.character(c(1:264))), 
+             by = "connection_from") %>%
+  # some multiple connections
+  group_by(connection_from) %>% 
+  summarise(W = max(W)) %>%
+  mutate(W = replace_na(W, 0))
+
+# connection to weights
+ct <- connectome_network %>% 
+  dplyr::select(connection_to, W) %>%
+  right_join(power_atals %>% mutate(connection_to=as.character(index)) %>%  dplyr::select(connection_to), by = "connection_to") %>%
+  group_by(connection_to) %>% 
+  summarise(W = max(W)) %>%
+  mutate(W = replace_na(W, 0))
+
+
+# create a vertices data.frame. One line per object of our hierarchy
+vertices  <-  data.frame(
+  name = unique(c(as.character(hierarchy$from), as.character(hierarchy$to))) , 
+  degree = as.numeric(c(rep(NA, 15), igraph::degree(net))),
+  weight_from = as.numeric(c(rep(NA, 15), cf$W)), 
+  weight_to = as.numeric(c(rep(NA, 15), ct$W))
+) 
+# Let's add a column with the group of each name. It will be useful later to color points
+vertices$group  <-  hierarchy$from[ match( vertices$name, hierarchy$to ) ]
+
+#Let's add information concerning the label we are going to add: angle, horizontal adjustement and potential flip
+#calculate the ANGLE of the labels
+vertices$id <- NA
+myleaves <- which(is.na( match(vertices$name, hierarchy$from) ))
+nleaves <- length(myleaves)
+vertices$id[ myleaves ] <- seq(1:nleaves)
+vertices$angle <- 90 - 360 * vertices$id / nleaves
+ 
+# calculate the alignment of labels: right or left
+# If I am on the left part of the plot, my labels have currently an angle < -90
+vertices$hjust <- ifelse( vertices$angle < -90, 1, 0)
+ 
+# flip angle BY to make them readable
+vertices$angle <- ifelse(vertices$angle < -90, vertices$angle+180, vertices$angle)
+
+# T/F
+vertices$show_connection <- vertices$id %in% union(connectome_network$connection_from, connectome_network$connection_to)
+vertices <- vertices %>%  group_by(group) %>% mutate(rk = ifelse(group%in%unique(power_atals$network), order(id), -1))
+
+
+# Create a graph object
+mygraph <- graph_from_data_frame( hierarchy, vertices=vertices )
+
+# The connection object must refer to the ids of the leaves:
+from  <-  match( connect$from, vertices$name)
+to  <-  match( connect$to, vertices$name)
+
+ggraph(mygraph, layout = 'dendrogram', circular = TRUE) +
+  # connection data
+  geom_conn_bundle(data = get_con(from = from, to = to), width=2, alpha=0.6, aes(colour=..index..)) +
+  scale_edge_colour_distiller(type = "seq", palette = "Paired", direction=1, na.value = "grey50") +
+
+  # node features
+  geom_node_point(aes(filter = leaf, x = x*1.07, y=y*1.07, colour=group, size=degree, alpha=0.2)) +
+  scale_colour_manual(values=colors14)+
+  scale_size_continuous( range = c(0.1,10)) + 
+  #scale_colour_brewer(palette = "Set1") +
+  
+  # label features
+  geom_node_text(aes(x=x*1.2, y=y*1.2, filter=show_connection, label=name), size=2, alpha=1, 
+                 check_overlap = TRUE, show.legend = NA) +
+  #geom_node_text(aes(x=x*1.15, y=y*1.5, label = group, angle=0, colour=group, filter=rk==1), 
+  #               check_overlap = TRUE, show.legend = NA)+
+  
+  # theme
+  theme_void() +
+  ggtitle("Network W")
+```
+
+```{r}
+# create a dataframe with connection between leaves (individuals)
+connect <- connectome_network %>% mutate(from=connection_from, to=connection_to, value=W) %>% dplyr::select(from, to, value)
+ 
+# create a vertices data.frame. One line per object of our hierarchy
+vertices  <-  data.frame(name = unique(c(as.character(hierarchy$from), as.character(hierarchy$to))),
+                         degree = as.numeric(c(rep(NA, 15), igraph::degree(net)))) 
+# Let's add a column with the group of each name. It will be useful later to color points
+vertices$group  <-  hierarchy$from[ match( vertices$name, hierarchy$to ) ]
+ 
+ 
+# Create a graph object
+mygraph <- graph_from_data_frame( hierarchy, vertices=vertices )
+ 
+# The connection object must refer to the ids of the leaves:
+from  <-  match( connect$from, vertices$name)
+to  <-  match( connect$to, vertices$name)
+ 
+# Basic graph
+ggraph(mygraph, layout = 'dendrogram', circular = TRUE) + 
+  geom_conn_bundle(data = get_con(from = from, to = to), aes(colour=..index..), alpha=0.8, width=0.9, tension=0.9) +
+  scale_edge_colour_distiller(palette = "RdPu") +
+  geom_node_point(aes(filter = leaf, x = x*1.05, y=y*1.05, colour=group, size=degree, alpha=0.2)) +
+  scale_colour_manual(values= rep( brewer.pal(9,"Paired") , 30)) +
+  scale_size_continuous( range = c(0.1,10) ) +
+  theme_void()
 ```
