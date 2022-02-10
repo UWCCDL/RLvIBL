@@ -1,0 +1,1804 @@
+---
+title: "RL vs IBL Project Analysis(Up Sampling)"
+output:
+  html_document:
+    code_folding: hide
+    theme: yeti
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  word_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(ggthemes)
+library(ppcor)
+library(reshape2)
+#library(gglasso)
+library(glmnet)
+library(ggsci)
+library(viridis)
+library(ggExtra)
+library(kableExtra)
+library(xtable)
+library(ggrepel)
+library(scales)
+library(car)
+library(pROC)
+library(patchwork)      # Multi-plot alignment
+library(brainconn)
+library(igraph)
+library(network)
+library(brainconn)
+library(brainGraph)
+library(RColorBrewer)
+library(networkD3)
+library(ggpubr)
+library(DescTools)
+#library(data.table)
+rm(list=ls())
+```
+
+# Analysis info and important parameters
+
+*rsfMRI data Parameters:*
+
+- rsfMRI: mr_pcorr.txt file
+
+- Z norm before load: False
+
+- upsampling: **UP**
+
+*ML Parameters: *
+
+- Z norm in glmnet: True
+
+- W: constant declarative=0.5, procedural=0.5 (because of UP sampling)
+
+- Hyperparameter tuning: nfolds = length(Y)
+
+- Model evaluation: nfolds = 20
+
+*Nested CV Parameters*
+
+- Betas: |mean beta| > 0.05
+
+*iGraph Parameters*
+
+- connectom betas: NOT nested beta
+- connection counts (duplicates): YES
+
+
+
+# Load subject data
+
+```{r}
+power2011 <- read_csv("../bin/power_2011.csv", 
+                      col_types = cols(ROI=col_double(),
+                                       X = col_double(),
+                                       Y = col_double(),
+                                       Z = col_double(),
+                                       Network = col_double(),
+                                       Color = col_character(),
+                                       NetworkName = col_character())) %>%
+  dplyr::select(ROI, X, Y, Z, Network, Color, NetworkName)
+```
+
+## Create the Group-Level Regressor Matrix $X$
+
+We now need to load the group level data. In essence, to corresponds to create a matrix _X_ in which every individual is a row and every columns is a different ROI-to-ROI connection.
+
+```{r}
+SKIP <- TRUE
+if (SKIP){
+  load("./__cache__/C_UP.RData")
+  # color setup
+  colors <- factor(power2011$Color)
+  levels(colors) <-  c(brewer.pal(name="Set3", n = 12), brewer.pal(name="Set1", n = 9))[1:14]
+  power2011$Color <- as.character(colors)
+  #df.UP <- read_csv("./__cache__/REST1_SES01_MR_PCORR_UP_2022FEB_subj.csv")
+  #C <- dfX.UP %>% dplyr::select(-HCPID) %>% as.matrix()
+  #C <- apply(C, 2, FUN=as.numeric)
+  #n <- dim(C)[[1]]
+} else {
+  NOFLY <- c()
+  SUBJS <- c()
+  cols <- outer(power2011$ROI, power2011$ROI, function(x, y) {paste(x, y, sep="-")})
+  cols %<>% as.vector
+  
+  connection <- function(x, y) {
+    paste(min(x, y), max(x, y), sep="-")
+  }
+  
+  vconnection <- Vectorize(connection)
+  
+  Mode <- function(x, na.rm=F) {
+    if (na.rm) {
+      x = x[!is.na(x)]
+    }
+    ux <- unique(x)
+    return(ux[which.max(tabulate(match(x, ux)))])
+  }
+  
+  reduced_power2011 <- power2011 %>% 
+    dplyr::select(Network, NetworkName) %>%
+    group_by(Network) %>%
+    summarize(Network = mean(Network), NetworkName = Mode(NetworkName))
+  
+  connection_name <- function(x, y) {
+    first <- min(x, y)
+    second <- max(x, y)
+    paste(reduced_power2011 %>% filter(Network == first) %>% dplyr::select(NetworkName) ,
+          reduced_power2011 %>% filter(Network == second) %>% dplyr::select(NetworkName),
+          sep="-")
+    
+  }
+  
+  vconnection_name <- Vectorize(connection_name)
+  
+  connection_name2 <- function(x, y) {
+    first <- min(x, y)
+    second <- max(x, y)
+    paste(reduced_power2011$NetworkName[reduced_power2011$Network == first],
+          reduced_power2011$NetworkName[reduced_power2011$Network == second],
+          sep="-")
+    
+  }
+  
+  vconnection_name2 <- Vectorize(connection_name2)
+  
+  
+  nets <- outer(power2011$Network, power2011$Network, vconnection)
+  nets %<>% as.vector
+  netnames <- outer(power2011$Network, power2011$Network, vconnection_name2)
+  netnames %<>% as.vector
+  
+  
+  n <- length(grep("sub-*", dir("./connectivity_matrix/REST1")))
+  C <- matrix(data = rep(0, length(cols)*n), nrow =  n)
+  
+  j <- 1
+  
+  R <- NULL
+  PR <- NULL
+  
+  for (sub in dir("./connectivity_matrix/REST1")[grep("sub-*", dir("./connectivity_matrix/REST1"))]) {
+    SUBJS %<>% c(strsplit(sub, "-")[[1]][2])
+    M <- paste("./connectivity_matrix/REST1", 
+               sub, 
+               "ses-01/mr_pcorr.txt", sep="/") %>%
+      read_csv(skip = 1,
+               col_names = F,
+               col_types = cols(
+                 .default = col_double(),
+                 X1 = col_character()
+               )) %>%
+      as.matrix() 
+    v <- as_vector(M[,2:265])  # v spreads M column-wise. M is symmetrical, so it should not matter, but better not risk it
+    C[j,] <- v
+    if (length(v[is.na(v)]) > 0) {
+      print(paste("NA detected in sub", sub))
+      NOFLY %<>% c(sub)  # Addes sub to NOFLY list
+    }
+    
+    j <- j + 1
+  }
+  C <- apply(C, 2, FUN=as.numeric)
+}
+```
+
+## Define the Networks
+
+```{r}
+NOI <- c(
+  "Uncertain",
+  "Sensory/somatomotor Hand",
+  "Sensory/somatomotor Mouth",
+  "Cingulo-opercular Task Control",
+  "Auditory",
+  "Default mode",
+  "Memory retrieval?",
+  "Ventral attention",
+  "Visual",
+  "Fronto-parietal Task Control",
+  "Salience",
+  "Subcortical",
+  "Cerebellar",
+  "Dorsal attention"
+)
+
+COI <- outer(NOI, 
+             NOI, 
+             function(x, y) {paste(x, y, sep="-")}) %>% as.vector()
+```
+
+The first censor vector simply removes the redundant columns (since the connectivity from _A_ to _B_ is the same as the connectivity of _B_ to _A_) and the self-correlations:
+
+```{r}
+censor <- outer(power2011$ROI, 
+                power2011$ROI, 
+                function(x, y) {x < y}) %>% as.vector()
+```
+
+The second censor vector removes unlikely functional connections: Those with a partial correlation value $|r| < 0.05|$.   
+
+```{r}
+censor2 <- colMeans(C) %>% abs() > 0.05
+```
+
+Now, we combine the censor vectors in a tibble that contains all of the relevant information about each column in _C_.
+
+```{r}
+order <- tibble(index = 1:length(nets), 
+                network = nets, 
+                network_names = netnames,
+                connection = cols, 
+                censor=censor,
+                censor2 = censor2)
+order %<>% arrange(network)
+```
+
+And we remove all entries for each a censor vector is `FALSE` (we also create a grouping factor _G_, in case in the future we want to use _Group_ Lasso). 
+
+```{r}
+I <- order %>%
+  filter(censor == TRUE) %>%
+  filter(censor2 == TRUE) %>%
+  filter(network_names %in% COI) %>%
+  dplyr::select(index) 
+
+G <- order %>%
+  filter(censor == TRUE) %>%
+  filter(network_names %in% COI) %>%
+  dplyr::select(network) 
+# G is the real grouping factor for Lasso!
+```
+
+As a last step, we create the "real" regressor matrix $X$, which is the proper subset of $C$ after removing all of the censored columns. Also, we need to load the dependent variable. In this case, it is a binary variable that determines which strategy model best fits the behavioral data of an individual, whether it is the "memory" strategy ($Y = 1$) or the "procedural" strategy ($Y = 2$).
+
+```{r}
+X <- C[,as_vector(I)]
+```
+
+```{r}
+dvs <- read_csv("../actr-models/model_output/MODELLogLikelihood.csv",
+                col_types = cols(
+                  .default = col_double(),
+                  HCPID = col_character(),
+                  best_model = col_character()
+                )) %>% 
+  dplyr::select(HCPID, best_model) %>%
+  arrange(HCPID)
+```
+
+Now we select only the rows of $X$ and the values of $Y$ for which we have both rsfMRI and model data.
+
+The dimension of X is: `r dim(X)`
+
+```{r}
+Y <- dfY.UP$best_model1
+```
+
+Finally, we transform the dependent variable $Y$ into a binary numeric variable with values $(0, 1)$, so that we can use logistic regression.
+
+```{r}
+Y <- as.numeric(as.factor(Y)) - 1
+```
+
+### Quality and Characteristics of $X$ and $Y$ 
+
+Let's do some visualization and analysis of our indepedenent and dependet variables, just to ensure there are no obvious problems. 
+
+#### Collinearity of Connectivity Regressors $X$
+
+The regressors $X$ is certainly multi-collinear; that is a consequence of having a large number of predictors $p > n$, which, in turn, is one of the reasons  why we are using Lasso. Too much collinearity, however, could be really bad and push Lasso towards  selecting non-optimal regressors. To gather a sense of how much collinearity we have, we can plot the distribution of correlations among regressors:
+
+```{r}
+corX <- cor(X)
+distCor <- as_vector(corX[lower.tri(corX, diag = F)])
+distTibble <- as_tibble(data.frame(R=distCor))
+
+ggplot(distTibble, aes(x=R)) +
+  geom_histogram(col="white", alpha=0.5, binwidth = 0.05) +
+  theme_pander() +
+  ylab("Number of Correlations") +
+  xlab("Correlation Value") +
+  ggtitle("Distribution of Correlation Values Between Regressors")
+```
+
+All in all, the collinearity is not that bad---all regressors are correlated at $|r| < 0.25$, and most of them are correlated at $|r| < 0.1$, with a peak at $r = 0$.
+
+#### Distribution of Classes
+
+And now, let's visualize the histogram of the dependent variable we are trying to predict:
+
+```{r}
+dependent <- as_tibble(data.frame(strategy=dvs$best_model))
+
+ggplot(dependent, aes(x = factor(strategy), fill=factor(strategy))) +
+  geom_bar(col="white", alpha=0.5, width = .5) +
+  scale_fill_nejm() +
+  xlab("Strategy") +
+  ylab("Number of Participants") +
+  scale_x_discrete(labels=c( "m1" = "Declarative",  "m2" = "Procedural")) +
+  ggtitle("Distribution of Strategy Use") +
+  theme_pander() +
+  theme(legend.position = "none")
+
+```
+
+Because the classes are not equally distributed, and participants are more likely to use the memory strategy ($Y=0$) than the procedural one ($Y = 1$), we would need to adjust the weights of our Lasso model.
+
+# Machine-Learning with Lasso
+
+## Cross-Validation
+
+We can now define the lasso model. We will use the elastic net approach with $\alpha = 0$ to generate a pure lasso model. The model will use a binomial (i.e., logistic) regression and will measure the cross-validation error as class misalignment.
+
+To analyze the data, we will use Lasso, a statistical learning system based on penalized regression.
+
+
+Most of the entries in our $Y$ vector are coded as "0" (i.e., most participants use the memory strategy), which creates an imbalance. We are going to create an appropriate set of weights so that the two classes are balanced.
+
+```{r}
+W <- Y
+W[W == 0] <- mean(Y)
+W[W == 1] <- (1-mean(Y))
+```
+
+
+```{r}
+fit <- glmnet(y = Y,
+              x = X,
+              alpha=1,
+              weights = W,
+              family = "binomial",
+              type.measure = "class",
+              standardize = T
+)
+```
+
+To choose the optimal value of $\lambda$ in Lasso, we will examine the cross-validation error during a LOO cross-validation.
+
+```{r}
+fit.cv <- cv.glmnet(y = Y,
+                    x = X,
+                    alpha=1,
+                    family = "binomial",
+                    weights = W,
+                    type.measure = "class",
+                    standardize=T,
+                    nfolds=length(Y),
+                    grouped = F
+)
+```
+
+Now, let's look at the cross-validation error profile.
+
+```{r}
+plot(fit.cv)
+```
+
+The profile has the characteristic U-shape or increasing curve, with more error as $\lambda$ increases. As recommended by Tibishirani, we will select the "lambda 1SE" value, which is the largest $\lambda$ value that does not differ by more tha 1 SE from the $\lambda$ value that gives us the minimum cross validation error. This guarantees the maximum generalizability. 
+
+We can also visualize the profile of the beta weights of each connection for different values of $\lambda$.
+
+```{r}
+plot(fit, sub="Beta Values for Connectivity") 
+L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.1se)]))
+abline(v=L1norm, lwd=2, lty=2)
+```
+
+And now, plot prettier version
+
+```{r, fig.width=6, fig.height=4}
+lasso_df <- as_tibble(data.frame(lambda=fit.cv$lambda, 
+                                 error=fit.cv$cvm, 
+                                 sd=fit.cv$cvsd))
+
+ggplot(lasso_df, aes(x=lambda, y=error)) +
+  geom_line(aes(col=error), lwd=2) +
+  scale_color_viridis("Error", option = "plasma") +
+  geom_ribbon(aes(ymin=error -sd, ymax=error + sd), alpha=0.2,fill="blue") +
+  xlab(expression(lambda)) +
+  ylab("Cross-Validation Error") +
+  ggtitle(expression(paste(bold("Cross Validation Error Across "), lambda))) +
+  geom_vline(xintercept = lasso_df$lambda[lasso_df$error==min(lasso_df$error)]) +
+  theme_pander() +
+  theme(legend.position="right")
+```
+
+The min $\lambda_{min}$ is `r fit.cv$lambda.min`, The 1se min $\lambda_{min}$ is `r fit.cv$lambda.1se`
+
+### Examining the Predictive Connectome
+
+Let's have a better look at the relevant connections that survive the Lass penalty at the value of $\lambda_{min} + 1 SE$. We start by saving these connections in a tibble, and saving the data on a file for later use.
+
+```{r}
+betas <- fit$beta[, which(fit$lambda==fit.cv$lambda.1se)]
+conn_betas <- as_tibble(data.frame(index=I$index, Beta=betas))
+connectome <- order %>%
+  filter(index %in% I$index) %>%
+  inner_join(conn_betas) %>%
+  dplyr::select(-censor2) %>%
+  filter(Beta != 0) %>%
+  
+  # reformat connectome
+  separate(connection, c("connection1", "connection2"))%>%
+  separate(network, sep = "-", c("network1", "network2"), remove = F) %>%
+  #filter(str_detect(network, pattern = "-1-")) %>%
+  mutate(network1 = ifelse(str_detect(network, pattern = "-1-"), -1, network1)) %>%
+  mutate(connection_type = ifelse(network1==network2, "Within", "Between")) %>%
+  arrange(index)
+
+
+# HARD CODE
+connectome[connectome$network=="-1-5","network2"] <- "5"
+connectome[connectome$network=="-1-7","network2"] <- "7"
+connectome[connectome$network=="-1--1","network2"] <- "-1"
+connectome[connectome$network=="-1-11","network2"] <- "11"
+connectome[connectome$network=="-1-12","network2"] <- "12"
+connectome[connectome$network=="-1-13","network2"] <- "13"
+
+```
+
+
+In sum, connectome has `r dim(connectome)[[1]]` non-zero connections, `r sum(connectome$Beta>0)` positive beta, and `r sum(connectome$Beta<0)` negative betas. We will use these betas for later brain connectivity analysis.  
+
+
+### Model Evaluation
+
+```{r}
+plot_prediction <- function(Y, Yp, title) {
+wcomparison <- tibble(Observed = Y,
+                    Predicted = Yp,
+                    DiscretePredicted = ifelse(Yp < 0.5, 0, 1))
+            
+wcomparison %<>% mutate(Accuracy = ifelse(DiscretePredicted == Observed,
+                                          "Correct", 
+                                          "Misclassified")) %>% drop_na()
+  
+#rval <- floor(100*cor(Y, Yp))/100
+aval <- round(100*nrow(dplyr::filter(wcomparison, Accuracy %in% "Correct")) / nrow(wcomparison),2)
+
+p <- ggplot(wcomparison, aes(x=Predicted, y=Observed, 
+                             col=Accuracy)) +
+  geom_point(size=4, alpha=0.6, 
+             position= position_jitter(height = 0.02)) +
+  geom_abline(intercept = 0, slope = 1, 
+              col="red",
+              linetype="dashed") +
+  scale_color_d3() +
+  theme_pander() +
+
+  theme(legend.position = "right") +
+  guides(col=guide_legend("Classification")) +
+  coord_fixed(xlim=c(0, 1), ylim=c(0, 1)) +
+  annotate("text", x=0.3, y=0.7,
+           label=paste("Accuracy (",
+                       length(Y),
+                       ") = ",
+                       aval,
+                       "%",
+                       sep="")) +
+  ylab("Observed Strategy") +
+  xlab("Predicted Strategy") +
+  ggtitle(paste("Predicted vs. Observation",title)) +
+  theme(legend.position = "bottom")
+  
+  ggMarginal(p, 
+             fill="grey", 
+             alpha=0.75,
+             type="density", #bins=13, 
+             col="darkgrey",
+             margins = "both")
+}
+
+plot_roc <- function(Y, Yp, title) {
+  wcomparison <- tibble(Observed = Y,
+                    Predicted = Yp,
+                    DiscretePredicted = ifelse(Yp < 0.5, 0, 1))
+            
+  wcomparison %<>% mutate(Accuracy = ifelse(DiscretePredicted == Observed,
+                                            "Correct", 
+                                            "Misclassified")) %>% drop_na()
+  wcomparison %<>% mutate(ROCPrediction = if_else(Predicted < 0.5, 0, 1))
+
+  rocobj <- roc(wcomparison$Observed, wcomparison$ROCPrediction)
+  
+  g <- ggroc(rocobj, col="red") +
+    geom_point(aes(y=rocobj$sensitivities, x=rocobj$specificities), col="red", size=4, alpha=.5) +
+    ggtitle(paste("AUC ROC Curve", title, round(rocobj$auc[[1]], 2))) +
+    xlab("Specificity (FPR)") + ylab("Sensitivity (TPR)") + 
+    geom_segment(aes(x = 1, xend = 0, y = 0, yend = 1), color="grey", linetype="dashed") +
+    theme_pander()
+  
+  g
+}
+
+plot_roc_slide <- function(Y, Yp, title) {
+  wcomparison <- tibble(Observed = Y,
+                    Predicted = Yp,
+                    DiscretePredicted = ifelse(Yp < 0.5, 0, 1))
+            
+  wcomparison %<>% mutate(Accuracy = ifelse(DiscretePredicted == Observed,
+                                            "Correct", 
+                                            "Misclassified")) %>% drop_na()
+  wcomparison %<>% mutate(ROCPrediction = if_else(Predicted < 0.5, 0, 1))
+  curve <- NULL
+
+  for (threshold in seq(0, 1, 0.01)) {
+    subthreshold <- wcomparison %>%
+      mutate(Prediction = ifelse(Predicted > 1, 1, Predicted)) %>%
+      mutate(Prediction = ifelse(Prediction <= 0, 1e-204, Prediction)) %>%
+      mutate(Prediction = ifelse(Prediction <= threshold, 0, 1)) %>%
+      mutate(Accuracy = ifelse(Prediction == Observed, 1, 0)) %>%
+      group_by(Observed) %>%
+      summarise(Accuracy = mean(Accuracy))
+    
+    tnr <- subthreshold %>% 
+      filter(Observed == 0) %>% 
+      dplyr::select(Accuracy) %>%
+      as.numeric()
+    
+    tpr <- subthreshold %>% 
+      filter(Observed == 1) %>% 
+      dplyr::select(Accuracy) %>%
+      as.numeric()
+    
+    partial <- tibble(Threshold = threshold,
+                      TNR = tnr,
+                      TPR = tpr)
+    if (is.null(curve)) {
+      curve <- partial
+    } else {
+      curve <- rbind(curve, partial)
+    }
+  }
+  
+  s <- ggplot(arrange(curve, TPR), aes(x=TNR, y=TPR)) + 
+    geom_point(size=2, col="red", alpha=0.5) + 
+    geom_line(col="red") + 
+    ylab("Sensitivity (True Positive Rate)") +
+    xlab("Specificity (True Negative Rate)") +
+    scale_x_reverse() +
+    # ylim(0, 1) +
+    # xlim(1, 0) +
+    ggtitle("ROC Curve for Different Thresholds") +
+    geom_abline(slope=1, intercept = 1, col="grey", linetype = "dashed") +
+    theme_pander()
+  s
+}
+```
+
+
+```{r}
+# validation data misclassification error
+fit.cv.accuracy <- 1-assess.glmnet(fit.cv, X, Y, weights = W, s="lambda.1se", family = "binomial")$class %>% as.vector()# best lambda cv error
+fit.cv.auc <- assess.glmnet(fit.cv, X, Y, weights = W, s="lambda.1se", family = "binomial")$auc %>% as.vector()# best lambda cv error
+  
+# training data prediction probabilities
+fit.cv.pred <- predict(fit.cv, newx = X, weights = W, s="lambda.1se", type="class", family = "binomial")%>% as.numeric()
+fit.cv.predprob <- predict(fit.cv, newx = X, weights = W, s="lambda.1se", type="response", family = "binomial")%>% as.numeric()
+
+```
+
+Calculate training Accuracy score (`r fit.cv.accuracy`) and AUC score (`r fit.cv.auc`)
+
+
+### Predicted vs. Observed
+
+```{r fig.width=10, fig.height=6}
+plot_prediction(Y, fit.cv.predprob, "(Training)")
+```
+
+### ROC
+```{r fig.width=6, fig.height=6}
+plot_roc(Y, fit.cv.predprob, "Training")
+```
+
+### ROC Curve By Sliding Threshold
+```{r fig.width=6, fig.height=6}
+plot_roc_slide(Y, fit.cv.predprob, "Training")
+```
+
+
+Finally, we can visualize the table of connections
+
+```{r}
+connectome %>%
+  xtable() %>%
+  kable(digits = 5) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+```
+
+### Stability of Estimated Beta Weights 
+
+And now, let's visualize the beta weights of the connections:  num connections=`r dim(connectome)[[1]]`
+
+```{r, fig.width=10, fig.height=10, eval=FALSE}
+
+
+ggplot(connectome, aes(x = reorder(connection, Beta), y = Beta)) +
+  geom_point(aes(col=Beta), alpha=.5, 
+             size=2,
+             position = position_jitter(height = 0, width = 0.3)) +
+  stat_summary(fun.data = "mean_sdl", geom="point", fill="black", alpha=1, size=1) +
+  scale_color_gradient2(low = "dodgerblue",
+                        mid = "wheat",
+                        high = "red2",
+                        midpoint = 0) +
+  scale_x_discrete(labels = 
+                     paste(connectome$network_names, 
+                           " (", 
+                           connectome$connection,
+                           ")", sep="")) +
+  ggtitle(paste("Connection Weights Across Cross-Validation:", dim(connectome)[[1]])) +
+  ylab(expression(paste(beta, " value"))) +
+  xlab("Connection") +
+  geom_hline(yintercept = 0, col="grey") +
+  stat_summary(fun.data = "mean_cl_boot", 
+               col="black", geom="errorbar", width=1) +
+  scale_color_viridis(option="plasma", begin=0.2, end=0.9) +
+  theme_pander() +
+  theme(axis.text.y = element_text(angle=0, hjust=1),
+        legend.position = "NA") +
+  #ylim(-3, 3) +
+  coord_flip()
+```
+
+
+```{r fig.width=8, fig.height=8}
+connectome %>% 
+  mutate(beta_sign = ifelse(Beta >0, "+", "-")) %>%
+  ggdotchart(x = "network_names", y = "Beta",
+           color = "beta_sign",                                # Color by groups
+           palette = c("steelblue", "tomato"), # Custom color palette
+           rotate = TRUE,
+           facet.by = "connection_type", 
+           sort.by.groups = F,
+           sort.val = "desc",          # Sort the value in descending order
+           sorting = "descending",                       # Sort value in descending order
+           add = "segments",                             # Add segments from y = 0 to dots
+           add.params = list(color = "lightgray", size = 2), # Change segment color and size
+           group = "connection_type",                                # Order by groups
+           dot.size = 3,                                 # Large dot size
+           #label = round(connectome$Beta,2),                        # Add mpg values as dot labels
+           #font.label = list(color = "white", size = 9,
+           #                  vjust = 0.5),               # Adjust label parameters
+           #group = "cyl",
+           #y.text.col = TRUE,
+           title = paste("Lasso Connection Weights:", dim(connectome)[[1]]),
+           ggtheme = theme_pander()) +
+  geom_hline(yintercept = 0, linetype = 2, color = "black") 
+  
+```
+
+
+### Statistical analysis of Network Distribution
+
+Lasso vs. Power
+
+```{r}
+subsetPower <- filter(power2011,
+                      NetworkName %in% NOI)
+noi_stats <- subsetPower %>%
+  group_by(NetworkName, Color) %>%
+  summarise(N=length(Color)/dim(subsetPower)[1]) %>%
+  add_column(Source="Power")
+
+lROIs <- unique(c(connectome$connection1, connectome$connection2))
+
+rois <- power2011[lROIs,]
+roi_stats <- rois %>%
+  group_by(NetworkName, Color, .drop = F) %>%
+  summarise(N=length(Color)/length(lROIs)) %>%
+  add_column(Source="Lasso") 
+
+
+roi_stats <- roi_stats %>% 
+  right_join(noi_stats %>% dplyr::select(NetworkName, Color), on = c("NetworkName", "Color")) %>%
+  mutate(N = ifelse(is.na(N), 0, N), Source="Lasso") %>%
+  arrange(NetworkName)
+
+total_stats <- rbind(noi_stats, roi_stats)
+```
+
+```{r}
+ggplot(total_stats, aes(x="", y=N, fill=NetworkName)) +
+  geom_bar(stat = "identity", col="white", width=1) +
+  facet_grid(~Source, labeller = label_both) +
+  coord_polar("y", start=0) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 2L)) +
+  scale_fill_manual(values = unique(power2011$Color)) +
+  #scale_fill_viridis(discrete = T) +
+  #scale_fill_ucscgb() +
+  ylab("") +
+  xlab("") +
+  ggtitle("Distriution of ROI") +
+  geom_text_repel(aes(label=percent(N, .1)), col="black", 
+            position=position_stack(vjust=.01), size=3)+
+  theme_pander() +
+  guides(fill=guide_legend(ncol=2)) +
+  theme(legend.position = "bottom")
+
+#ggbarplot(total_stats, x="NetworkName", y="N", facet.by = "Source", fill = "NetworkName", color = "white",
+#          merge = T, label = F,
+#          ) +
+#  coord_polar("y", start=0) 
+```
+
+```{r}
+chisq.test(roi_stats$N*length(lROIs), p = noi_stats$N)
+```
+
+Lasso vs. Power: 
+  
+  Between vs. Within
+
+````{r}
+net_from <- function(s) {as.character(strsplit(s, "-")[[1]][1])}
+net_to <- function(s) {as.character(strsplit(s, "-")[[1]][2])}
+
+vnet_from <- Vectorize(net_from)
+vnet_to <- Vectorize(net_to)
+
+connectivity <- function(s) {
+  if (net_from(s) == net_to(s)) {
+    "Within"
+  } else {
+    "Between"
+  }
+}
+
+vconnectivity <- Vectorize(connectivity)
+coi <- order %>%
+  filter(censor == TRUE) %>%
+  filter(network_names %in% COI) 
+
+coi$from <- vnet_from(coi$network_names)
+coi$to <- vnet_to(coi$network_names)
+coi$connection_type <- vconnectivity(coi$network_names)
+
+coi_stats <- coi %>% 
+  group_by(connection_type) %>% 
+  summarise(N=length(index), P=length(index)/dim(coi)[1]) %>%
+  add_column(Source = "Power et al. (2011)")
+
+```
+
+
+
+````{r}
+connectome$connection_type <- vconnectivity(connectome$network_names)
+connectome_stats <- connectome %>%
+  group_by(connection_type) %>% 
+  summarise(N=length(index), P=length(index)/dim(connectome)[1]) %>%
+  add_column(Source = "Lasso Analysis")
+
+connect_stats <- rbind(connectome_stats, coi_stats)
+
+```
+
+
+````{r}
+
+ggplot(connect_stats, aes(x="", y=P, fill=connection_type)) +
+  geom_bar(stat = "identity", col="grey", width=1) +
+  facet_grid(~Source, labeller = label_both) +
+  coord_polar("y", start=0) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 2L)) +
+  scale_fill_jama() +
+  scale_color_jama() +
+  ylab("") +
+  xlab("") +
+  ggtitle("Distribuction of Connectivity\n(Within/Between Networks)") +
+  geom_text_repel(aes(label=percent(P, .1)), col="white",
+            position=position_stack(vjust=1), size=3)+
+  theme_pander() +
+  theme(legend.position = "bottom")
+```
+
+
+````{r}
+chisq.test(connectome_stats$N, p=coi_stats$P)
+```
+
+
+
+
+## Nested Cross-Validation
+
+NOTE: In this case, lambda is not same for each subject
+
+```{r eval=FALSE}
+N <- length(Y)
+P <- ncol(X)
+betas <- matrix(rep(0, P * N), nrow = N)
+Yp <- rep(0, N)
+minF = 1
+#X <- atanh(X)  ## ??? WHY USE atanh
+dfX <- as.data.frame(cbind(Y, X))
+for (i in 1:N) {
+  Ytrain <- Y[-i]
+  Xtrain <- X[-i,]
+  Wtrain <- W[-i]
+  # fit <- ncvreg
+  fit <- glmnet(y = Ytrain,
+                x = Xtrain,
+                weights = Wtrain,
+                alpha = 1,
+                family = "binomial",
+                type.measure ="class",
+                standardize = T
+  )
+  
+  fit.cv <- cv.glmnet(y = Ytrain,
+                      x = Xtrain,
+                      alpha=1,
+                      weights=Wtrain,
+                      #penalty="SCAD",
+                      family = "binomial",
+                      type.measure = "class",
+                      standardize=T,
+                      grouped=F,
+                      nfolds=20
+                      #nfolds=length(Ytrain)
+  )
+  
+  
+  lambda <- fit.cv$lambda.min
+  nzero <- fit.cv$nzero[which(fit.cv$lambda == fit.cv$lambda.min)]
+  
+  if (fit.cv$nzero[which(fit.cv$lambda == fit.cv$lambda.1se)] > 0) {
+    lambda <- fit.cv$lambda.1se
+    nzero <- fit.cv$nzero[which(fit.cv$lambda == fit.cv$lambda.1se)]
+  }
+  
+  if (nzero < minF) {
+    # If no features, select a less-generalizable lambda
+    lambda <- fit.cv$lambda[which(fit.cv$nzero >= minF)[1]]
+  } 
+  
+  B <- fit$beta[,which(fit$lambda==lambda)]
+  #B <- coef(fit.cv, s=lambda) %>% as.matrix()
+  #B <- fit$beta[,which(fit$lambda==fit$lambda[60])]
+  #print(B)
+  #print(fit.cv$lambda.min)
+  #plot(fit.cv)
+  if (length(B[B!=0])) {
+    #print(c(i, length(B[B!=0])))
+    dfX <- data.frame(cbind(Y, X[, B != 0]))
+    #lmod<-lm(Y ~ . + 1, data=dfX[-i,])
+    #print(lmod)
+    #Xtest <- dfX[i,-1]
+    #yp <- lmod$coefficients[1] + sum(B*X[i,])# predict on test data
+    yp <- predict(fit.cv, newx = X[-i,], s=lambda, type="response")
+    assess.glmnet(fit.cv, X[-i,], Y[-i], weights = W[-i], s=fit.cv$lambda.min, family = "binomial")$class # best lambda cv error
+    assess.glmnet(fit.cv, X[-i,], Y[-i], weights = W[-i], s=fit.cv$lambda.min, family = "binomial")$auc # best lambda cv auc
+    assess.glmnet(fit, X[-i,], Y[-i], weights = W[-i], s=fit.cv$lambda.min, family = "binomial")$class # best lambda cv error = same as first
+    
+  } else {
+    yp <- mean(Ytrain)
+  }
+  betas[i,] <- B
+  Yp[i] <- yp
+}
+```
+
+```{r}
+set.seed(0)
+#dfX <- data.frame(cbind(Y, X[,betas != 0]))
+nrounds <- 200
+nfolds <- 20
+ntest <- 30
+nP <- ncol(X)
+nO <- nrow(X)
+# Training log0
+Yp.train <- matrix(rep(NA, nO * nO),  ncol = nO) %>% as.data.frame()  # Vector of zeros the size of 176 x 176 
+
+# Prediction log
+nested.train.Yp <- matrix(rep(NA, nO * nrounds),  ncol = nrounds)
+nested.train.Ypp <- matrix(rep(NA, nO * nrounds),  ncol = nrounds)
+nested.test.Yp <- matrix(rep(NA, nO * nrounds),  ncol = nrounds)
+nested.test.Ypp <- matrix(rep(NA, nO * nrounds),  ncol = nrounds)
+
+### Score log
+nested.train.errorscore <- c()
+nested.train.aucscore <- c()
+nested.test.errorscore <- c()
+nested.test.acuscore <- c()
+
+### Coefs log
+Xcoef <- matrix(rep(NA, nP * nrounds),  ncol = nrounds) # Matrix of zeros the dimensions of X (645 x 176)
+
+### Best Lambda log
+nested.lambdas <- c()
+
+#colnames(Xco) <- paste("s", 1:numO, sep="")
+#rownames(Xco) <- paste("b", 1:numP, sep="")
+for(i in 1:nrounds) {
+  tryCatch({
+    #print(i)
+    #if (i==7) stop("Urgh, the iphone is in the blender !")
+  itest <- sample(seq(length(Y)), ntest, replace=FALSE)
+  #itest <- seq(i, i+2) %>% as.integer()
+  #if (i+2==length(Y)) { break }
+  iW <- Y[-itest]
+  iW[iW == 0] <- mean(Y[-itest])
+  iW[iW == 1] <- (1-mean(Y[-itest]))
+  
+  ilasso <- glmnet(x=X[-itest, ], y=Y[-itest], 
+                   alpha=1,
+                   weights = iW,
+                   family = "binomial", 
+                   type.measure = "class",  
+                   standardize=F)
+  
+  ilasso.cv <- cv.glmnet(x=X[-itest, ], y=Y[-itest], 
+                        alpha=1,
+                        weights=iW,
+                        #penalty="SCAD",
+                        family = "binomial",
+                        type.measure = "class",
+                        standardize=T,
+                        grouped=F,
+                        nfolds=nfolds)
+  
+  # define best lambda
+  bestlambda <- fit.cv$lambda.min
+  nested.lambdas <- c(nested.lambdas, bestlambda)
+  
+  # validation data misclassification error
+  ilasso.cv.error <-assess.glmnet(ilasso.cv, X[-itest,], Y[-itest], weights = W[-itest], s=bestlambda, family = "binomial")$class %>% as.vector()# best lambda cv error
+  ilasso.cv.auc <-assess.glmnet(ilasso.cv, X[-itest,], Y[-itest], weights = W[-itest], s=bestlambda, family = "binomial")$auc %>% as.vector()# best lambda cv error
+  # training data prediction probabilities
+  ilasso.cv.pred <- predict(ilasso.cv, newx = X[-itest,], weights = W[-itest], s=bestlambda, type="class", family = "binomial")%>% as.numeric()
+  ilasso.cv.predprob <- predict(ilasso.cv, newx = X[-itest,], weights = W[-itest], s=bestlambda, type="response", family = "binomial")%>% as.numeric()
+  
+  # testing data misclassification error
+  ilasso.test.error <-assess.glmnet(ilasso.cv, X[itest,], Y[itest], weights = W[itest], s=bestlambda, family = "binomial")$class %>% as.vector()# best lambda cv error
+  ilasso.test.auc <-assess.glmnet(ilasso.cv, X[itest,], Y[itest], weights = W[itest], s=bestlambda, family = "binomial")$auc %>% as.vector()# best lambda cv error
+  # training data prediction probabilities
+  ilasso.test.pred <- predict(ilasso.cv, newx = X[itest,], weights = W[itest], s=bestlambda, type="class", family = "binomial")%>% as.numeric()
+  ilasso.test.predprob <- predict(ilasso.cv, newx = X[itest,], weights = W[itest], s=bestlambda, type="response", family = "binomial")%>% as.numeric()
+  
+  # coeff
+  B <- coef(ilasso.cv, s=bestlambda)[-1,] # do not keep intercept
+  
+  ### LOG Score
+  nested.train.errorscore <- c(nested.train.errorscore, ilasso.cv.error)
+  nested.train.aucscore <- c(nested.train.aucscore, ilasso.cv.auc)
+  nested.test.errorscore <- c(nested.test.errorscore, ilasso.test.error)
+  nested.test.acuscore <- c(nested.test.acuscore, ilasso.test.auc)
+  
+  ### LOG Coefs
+  Xcoef[,i] <- B
+  
+  ### LOG Prediction
+  nested.train.Yp[-itest,i] <- ilasso.cv.pred
+  nested.train.Ypp[-itest,i] <- ilasso.cv.predprob
+  nested.test.Yp[itest,i] <- ilasso.test.pred
+  nested.test.Ypp[itest,i] <- ilasso.test.predprob
+
+  }, error=function(e){
+    print(paste('i=', i, "Uhhh, error\n"))
+  })
+}
+```
+
+Visualize Prediction vs. Observed on Training and Testing data '
+The Yp is calcualted by averaged across each round
+
+### Predicted vs. Observed
+```{r fig.height=6, fig.width=6}
+plot_prediction(Y, apply(nested.train.Ypp, 1, mean, na.rm=T), "(Training)")
+```
+
+```{r fig.height=6, fig.width=6}
+plot_prediction(Y, apply(nested.test.Ypp, 1, mean, na.rm=T), "(Testing)")
+```
+
+### ROC 
+```{r fig.height=6, fig.width=6}
+plot_roc(Y, apply(nested.train.Ypp, 1, mean, na.rm=T), "(Training)")
+```
+
+```{r fig.height=6, fig.width=6}
+plot_roc(Y, apply(nested.test.Ypp, 1, mean, na.rm=T), "(Testing)")
+```
+
+### ROC By Sliding Threshold
+```{r}
+plot_roc_slide(Y, apply(nested.train.Ypp, 1, mean, na.rm=T), "(Training)")
+```
+
+```{r}
+plot_roc_slide(Y, apply(nested.test.Ypp, 1, mean, na.rm=T), "(Testing)")
+```
+
+
+```{r}
+### LOG Score
+nested.df <- data.frame(score=1-nested.train.errorscore, data_type="train", score_type="Accuracy", rounds = seq(1:nrounds)) %>%
+  rbind(data.frame(score=1-nested.test.errorscore, data_type="test", score_type="Accuracy", rounds = seq(1:nrounds))) %>%
+  rbind(data.frame(score=nested.train.aucscore, data_type="train", score_type="AUC", rounds = seq(1:nrounds))) %>%
+  rbind(data.frame(score=nested.test.acuscore, data_type="test", score_type="AUC", rounds = seq(1:nrounds))) 
+  
+ggboxplot(data=nested.df, x="data_type" , y="score", 
+          color = "data_type", #fill = "score_type", 
+          facet.by = "score_type", add = "jitter") +
+  geom_hline(yintercept = 0.5, col = "gray", line_type=1) +
+  ggtitle("Nested CV: AUC and Accuracy for both Training and Testing data") +
+  ylim(0,1) +
+  theme_pander() 
+```
+
+
+The left skewed distribution of Betas is a good sign that betas do not change significantly across CV Folds
+
+```{r eval=FALSE}
+Xcoef.stats <- data.frame(beta.id=seq(1:dim(Xcoef)[[1]]),beta.mean=apply(Xcoef,1,mean),  beta.sd=apply(Xcoef,1,sd))%>% # 1=Row, 2=Col 
+  filter(beta.mean!=0) %>%
+  arrange(-beta.sd)
+
+Xcoef.stats %>% 
+  gghistogram("beta.sd", bins = 100, fill = "steelblue", color = "white") +
+  ggtitle("Distribution of Coefficients SD across Nested CV-folds") +
+  theme_pander()
+```
+
+### Examining the Predictive Connectome 
+
+```{r}
+nested_beta_thresh <- 0.05
+
+uB <- rowMeans(Xcoef)
+conn_betas_nested <- as_tibble(data.frame(index=I$index, Beta=uB))
+connectome_nested <- order %>%
+  filter(index %in% I$index) %>%
+  inner_join(conn_betas_nested) %>%
+  dplyr::select(-censor2) %>%
+  #filter(Beta != 0) %>%
+  filter(Beta <= -nested_beta_thresh | Beta >= nested_beta_thresh) %>%
+
+  # reformat connectome
+  separate(connection, c("connection1", "connection2"))%>%
+  separate(network, sep = "-", c("network1", "network2"), remove = F) %>%
+  #filter(str_detect(network, pattern = "-1-")) %>%
+  mutate(network1 = ifelse(str_detect(network, pattern = "-1-"), -1, network1)) %>%
+  mutate(connection_type = ifelse(network1==network2, "Within", "Between")) %>%
+  arrange(index)
+
+
+# HARD CODE
+connectome_nested[connectome_nested$network=="-1-5","network2"] <- "5"
+connectome_nested[connectome_nested$network=="-1-7","network2"] <- "7"
+connectome_nested[connectome_nested$network=="-1--1","network2"] <- "-1"
+connectome_nested[connectome_nested$network=="-1-11","network2"] <- "11"
+connectome_nested[connectome_nested$network=="-1-12","network2"] <- "12"
+connectome_nested[connectome_nested$network=="-1-13","network2"] <- "13"
+
+```
+
+After applying threshold `r nested_beta_thresh`, the remaining number of connections (NESTED) is `r dim(connectome_nested)[[1]]`
+
+
+### Stability of Estimated Beta Weights 
+
+And now, let's visualize the beta weights of the connections
+
+```{r, fig.width=10, fig.height=15, eval=FALSE}
+ggplot(connectome_nested, aes(x = reorder(connection, Beta), y = Beta)) +
+  geom_point(aes(col=Beta), alpha=.5, 
+             size=2,
+             position = position_jitter(height = 0, width = 0.3)) +
+  stat_summary(fun.data = "mean_sdl", geom="point", fill="black", alpha=1, size=1) +
+  scale_color_gradient2(low = "dodgerblue",
+                        mid = "wheat",
+                        high = "red2",
+                        midpoint = 0) +
+  scale_x_discrete(labels = 
+                     paste(connectome_nested$network_names, 
+                           " (", 
+                           connectome_nested$connection,
+                           ")", sep="")) +
+  ggtitle(paste("Connection Weights Across Cross-Validation", dim(connectome_nested)[[1]])) +
+  ylab(expression(paste(beta, " value"))) +
+  xlab("Connection") +
+  geom_hline(yintercept = 0, col="grey") +
+  stat_summary(fun.data = "mean_cl_boot", 
+               col="black", geom="errorbar", width=1) +
+  scale_color_viridis(option="plasma", begin=0.2, end=0.9) +
+  theme_pander() +
+  theme(axis.text.y = element_text(angle=0, hjust=1),
+        legend.position = "NA") +
+  #ylim(-3, 3) +
+  coord_flip()
+```
+
+```{r fig.width=10, fig.height=10}
+connectome_nested %>% 
+  mutate(beta_sign = ifelse(Beta >0, "+", "-")) %>%
+  ggdotchart(x = "network_names", y = "Beta",
+           color = "beta_sign",                                # Color by groups
+           palette = c("steelblue", "tomato"), # Custom color palette
+           rotate = TRUE,
+           facet.by = "connection_type", 
+           sort.by.groups = F,
+           sort.val = "desc",          # Sort the value in descending order
+           sorting = "descending",                       # Sort value in descending order
+           add = "segments",                             # Add segments from y = 0 to dots
+           add.params = list(color = "lightgray", size = 2), # Change segment color and size
+           group = "connection_type",                                # Order by groups
+           dot.size = 3,                                 # Large dot size
+           #label = round(connectome$Beta,2),                        # Add mpg values as dot labels
+           #font.label = list(color = "white", size = 9,
+           #                  vjust = 0.5),               # Adjust label parameters
+           #group = "cyl",
+           #y.text.col = TRUE,
+           title = paste("Lasso Connection Weights(Nested):", dim(connectome_nested)[[1]]),
+           ggtheme = theme_pander()) +
+  geom_hline(yintercept = 0, linetype = 2, color = "black") 
+  
+```
+
+
+
+# Testing the validity of the Lasso model
+
+Here, we will examine the quality of our Lasso model bu doing a series of tests.
+
+## Ablation test
+
+In the ablation test, we remove all the  connections with significant beta values, and check whether the results are still significant. 
+
+```{r}
+XX <- X[, conn_betas$Beta == 0]
+
+fit_wo <- glmnet(y = Y,
+                 x = XX,
+                 alpha=1,
+                 lambda = fit$lambda,
+                 family = "binomial",
+                 type.measure = "class",
+                 weights = W,
+                 standardize = T
+)
+
+fit_wo.cv <- cv.glmnet(y = Y,
+                       x = XX,
+                       alpha=1,
+                       weights = W,
+                       lambda = fit$lambda,
+                       standardize=T,
+                       type.measure = "class",
+                       family = "binomial",
+                       grouped=F,
+                       nfolds=length(Y)
+)
+```
+
+The model does converge, but its overall classification error is much higher. 
+
+```{r}
+plot(fit_wo, sub="Beta Values for Connectivity")
+
+L1norm <- sum(abs(fit_wo$beta[,which(fit_wo$lambda==fit_wo.cv$lambda.1se)]))
+abline(v=L1norm, lwd=2, lty=2)
+```
+
+It is useful to plot the two $\lambda$-curves (with and without the relevant connections) on the same plot.
+
+```{r fig.width=6, fig.height=4}
+lasso_df_wo <- tibble(lambda=fit_wo.cv$lambda, 
+                   error=fit_wo.cv$cvm, 
+                   sd=fit_wo.cv$cvsd)
+
+
+
+lasso_df$Model <- "Full Model"
+lasso_df_wo$Model <- "Without the Selected Connections"
+
+lasso_uber <- rbind(lasso_df, lasso_df_wo)
+
+ggplot(lasso_uber, aes(x = lambda, y = error, fill=Model)) +
+  #scale_color_d3() +
+  #scale_fill_d3()+
+  geom_ribbon(aes(ymin = error - sd, 
+                  ymax = error + sd), 
+              alpha = 0.5,
+              #fill="blue"
+              ) +
+  geom_line(aes(col=Model), lwd=2) +
+  xlab(expression(lambda)) +
+  ylab("Cross-Validation Error") +
+  ggtitle(expression(paste(bold("Cross Validation Error Across "), lambda))) +
+  geom_vline(xintercept = fit.cv$lambda.1se,
+             linetype="dashed") +
+  ylim(0,1) +
+  theme_pander() +
+  theme(legend.position="bottom")
+```
+
+## Variance Inflation Factor
+
+Then, we examine the Variance Inflation Factor (VIF). To calculate the VIF, we need to first create a linear model of the factor effects:
+
+```{r}
+dfX <- data.frame(cbind(Y, X[, betas != 0]))
+#dfX <- data.frame(cbind(Y, X[conn_betas[conn_betas$Beta!=0,]$index]))
+mod<-lm(Y ~ . + 1, as.data.frame(dfX))
+```
+
+We can now calculate the VIF and turn the results into a tibble: 
+
+```{r}
+vifs <- vif(mod)
+vifsT <- tibble(VIF = vifs)
+```
+
+And, finally, we can plot an histogram of the distribution of VIF values. VIFs values < 10 are considered non-collinear; VIFs values < 5 are great. All of our factors have VIF values that a re _much_ smaller than 5, which implies that they are as close to a normal basis set as possible. 
+
+```{r}
+ggplot(vifsT, aes( x =VIF)) +
+  geom_histogram(col="white", binwidth = 0.1, fill="blue", alpha=0.4) +
+  theme_pander() +
+  xlab("VIF Value") +
+  ylab("Number of Predictors") +
+  ggtitle("Distribution of Variance Inflation Factors")
+```
+
+
+--- 
+
+
+# Brain Network Analysis (Power)
+
+## A Matrix
+To calculate the averaged corr matrix A 
+
+1) find the Fisher's Z values of the corresponding Pearson correlation coefficients
+2) Average them
+3) Find the reverse Fisher's Z transform of that average value.
+
+```{r}
+C.z <- FisherZ(C)
+C.zmean <- matrix(colMeans(C.z), nrow=264, ncol = 264)
+A <- FisherZInv(C.zmean)
+A.vec <- as.vector(A)
+```
+
+
+## W Matrix
+
+Calculate W from betas and A Matrix
+
+```{r}
+library(circlize)
+
+connectom2matrix <- function(connectome, w) {
+  empty_mat <- matrix(0, 264, 264, dimnames = list(paste0("X", 1:264), paste0("X", 1:264))) 
+  empty_mat[connectome$index] <- connectome$W
+  return(empty_mat)
+}
+
+# convert a 264*264 matrix back to connectom df
+matrix2connectom <- function(mat, connectome, col_name) {
+  connectome$temp = mat[connectome$index]
+  connectome <- rename(connectome, !!col_name := temp)
+  return(connectome)
+}
+
+# make the matrix symmetric
+make_symmetric <- function(m) {
+  # lower.tri is 0.0
+  m[lower.tri(m)] <- t(m)[lower.tri(m)]
+  return(m)
+}
+
+power_atals <- power2011 %>% 
+  rename(ROI.Name = ROI, x.mni=X, y.mni=Y, z.mni=Z, network=NetworkName) %>% 
+  mutate(ROI.Name=as.integer(ROI.Name), index = as.integer(ROI.Name),
+         x.mni=as.integer(x.mni), y.mni=as.integer(y.mni), z.mni=as.numeric(z.mni)) %>%
+  dplyr::select(ROI.Name, x.mni, y.mni, z.mni, network, index)
+
+check_atlas(power_atals)
+```
+
+```{r}
+NESTED <- FALSE
+
+if(NESTED) {
+  connectome_data <- connectome_nested
+} else {
+  connectome_data <- connectome
+}
+
+Wconnectome <- connectome_data %>%
+  mutate(A = A.vec[connectome_data$index], W = A*Beta)
+  #separate(connection, c("connection1", "connection2"))%>%
+  #separate(network, sep = "-", c("network1", "network2"), remove = F) %>%
+  #filter(str_detect(network, pattern = "-1-")) %>%
+         #network1 = ifelse(str_detect(network, pattern = "-1-"), -1, network1)) %>%
+  #mutate(connection_type = ifelse(network1==network2, "Within", "Between"))
+
+if (!SKIP) {
+  write_csv(Wconnectome, file="./__cache__/strategy_mr.csv")
+}
+
+
+W_mat <- matrix(0, ncol = 264, nrow = 264)
+W_mat[Wconnectome$index] <- Wconnectome$W
+W_mat <- make_symmetric(W_mat) #CHECKED correct W_mat
+```
+
+
+```{r eval=FALSE}
+
+## TEST CODE
+Wconnectome %>% filter(W>0) %>%
+  group_by(connection_type) %>%
+  count()
+
+Wconnectome %>% filter(W>0 & connection_type=="Between") %>% arrange(-W)
+W_mat[64071]
+
+print_mat_colrow_names <- function(mdat, ind){
+  k <- arrayInd(ind, dim(mdat))
+  print(paste("rowname: ", rownames(mdat)[k[,1]]))
+  print(paste("colname: ", colnames(mdat)[k[,2]]))
+}
+
+print_mat_colrow_names(W_mat, 64071)
+```
+
+```{r fig.width=7, fig.height=7}
+Wconnectome %>% 
+  mutate(W_sign = ifelse(W >0, "+", "-")) %>%
+  ggdotchart(x = "network_names", y = "W",
+           color = "W_sign",                                # Color by groups
+           palette = c("steelblue", "tomato"), # Custom color palette
+           rotate = TRUE,
+           facet.by = "connection_type", 
+           sort.by.groups = F,
+           sort.val = "desc",          # Sort the value in descending order
+           sorting = "descending",                       # Sort value in descending order
+           add = "segments",                             # Add segments from y = 0 to dots
+           add.params = list(color = "lightgray", size = 2), # Change segment color and size
+           group = "connection_type",                                # Order by groups
+           dot.size = 3,                                 # Large dot size
+           #label = round(connectome$Beta,2),                        # Add mpg values as dot labels
+           #font.label = list(color = "white", size = 9,
+           #                  vjust = 0.5),               # Adjust label parameters
+           #group = "cyl",
+           #y.text.col = TRUE,
+           title = paste("Lasso Connection W:", dim(connectome)[[1]]),
+           ggtheme = theme_pander()) +
+  geom_hline(yintercept = 0, linetype = 2, color = "black") 
+  
+```
+ 
+```{r eval=FALSE}
+lwd_mat = matrix(1, nrow = nrow(W_mat), ncol = ncol(W_mat))
+rownames(lwd_mat) = rownames(W_mat)
+colnames(lwd_mat) = colnames(W_mat)
+lwd_mat[W_mat > 0] = 2
+
+border_mat = matrix(NA, nrow = nrow(W_mat), ncol = ncol(W_mat))
+rownames(border_mat) = rownames(W_mat)
+colnames(border_mat) = colnames(W_mat)
+border_mat[W_mat > 0] = "black"
+border_mat[W_mat < 0] = "gray"
+
+chordDiagram(W_mat, link.lwd = lwd_mat, link.border = border_mat, scale = T, reduce = F)
+circos.clear()
+```
+
+```{r fig.height=8, fig.width=8}
+rownames(W_mat) = power_atals$network
+colnames(W_mat) = power_atals$network
+
+#col_fun = colorRamp2(range(W_mat), c("tomato", "steelblue"))
+
+
+#sorted_net <- sort(power_atals$network)
+#colors14 = c(brewer.pal(name="Set3", n = 12), brewer.pal(name="Set1", n = 9))[1:14]
+#sorted_col <- c(brewer.pal(name="Set3", n = 12), brewer.pal(name="Set1", n = 9))[1:14]
+              #c(brewer.pal(name="Set2", n = 8), 
+              #  "darksalmon", "limegreen", "ligghtpink", "olivedrab", "navy", "mediumpurple", "maroon")
+#rand_color(14)#c(brewer.pal(name="Set1", n = 9), brewer.pal(name="Set2", n = 9))[1:14]
+
+png(filename = "./__cache__/figures1.png",  bg = "transparent", width =500, height = 500, units = "px", res = 150)
+chordDiagram(W_mat, directional = FALSE, transparency = 0.5, self.link = 2  , symmetric = TRUE, scale = F, reduce = F,
+             annotationTrack = c("grid", "axis"), #annotationTrackHeight = mm_h(c(8, 5)),
+             grid.col = unique(power2011$Color), col = ifelse(W_mat>0, "tomato2", "#00000000"))
+title("Declarative Network")
+
+# Legend making
+#legend("right",pch=20,legend=unique(colnames(W_mat)),
+#       col=colors[unique(colnames(W_mat))],bty="n",
+#       cex=1,pt.cex=3,border="black") # Set legend
+circos.clear()
+
+
+```
+
+
+```{r fig.height=8, fig.width=8}
+png(filename = "./__cache__/figures2.png",  bg = "transparent", width =500, height = 500, units = "px", res = 150)
+chordDiagram(W_mat, directional = FALSE, transparency = 0.5, self.link = 2  , symmetric = TRUE, scale = F, reduce = F,
+             annotationTrack = c("grid", "axis"),
+             grid.col = unique(power2011$Color), col = ifelse(W_mat<0, "steelblue", "#00000000"))
+title("Procedural Network")
+circos.clear()
+```
+
+```{r fig.height=8, fig.width=8}
+chordDiagram(x=W_mat, directional = FALSE, transparency = .5, self.link = 2, symmetric = TRUE, scale = T, reduce = F,
+             grid.col = unique(power2011$Color), col = ifelse(W_mat>0, "tomato2", "steelblue"))
+title("Network connections")
+circos.clear()
+```
+
+
+##Network and node desciptives
+
+Next, we will look at Graph properties of two networks
+
+### iGraph: Density
+
+The proportion of present edges from all possible edges in the network.
+
+```{r}
+# select cols
+roi_links <- Wconnectome %>% dplyr::select(connection1, connection2, W, connection_type, network, network_names)
+# rename cols
+colnames(roi_links) <- c("from", "to", "weight", "connection_type", "network", "network_names")
+
+roi_nodes <- power2011 %>% rename(id = ROI) %>%
+  mutate(NetworkName=factor(NetworkName), 
+         Color=factor(Color))
+levels(roi_nodes$Color) <- sample(colors(T), 14) 
+
+# create a graph
+net <- graph_from_data_frame(d=roi_links, vertices=roi_nodes, directed=F) 
+#g <- graph_from_adjacency_matrix(W_mat,, mode = "upper")
+
+net.d <- net - E(net)[E(net)$weight<0]
+net.p <- net - E(net)[E(net)$weight>0]
+
+df.density <- data.frame("edge_density"=c(edge_density(net.d, loops=F), 
+                            edge_density(net.p, loops=F),
+                            edge_density(net, loops=F)), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full")))
+```
+
+
+```{r}
+df.density %>% ggbarplot(x="network", y="edge_density", color = "white", fill=c("tomato", "steelblue", "gray"), width = 0.5, label = T, lab.nb.digits = 5) +
+  theme_pander() + 
+  ggtitle("Degree Edge Density")
+```
+
+#### iGraph: Diameter
+
+A network diameter is the longest geodesic distance (length of the shortest path between two nodes) in the network. In igraph, diameter() returns the distance, while get_diameter() returns the nodes along the first found path of that distance.
+
+```{r}
+# make negative weights to positive
+net.p.abs <- net.p
+E(net.p.abs)$weight <- E(net.p.abs)$weight * (-1)
+
+# make negative weights to positive
+net.abs <- net
+E(net.abs)$weight[E(net.abs)$weight<0] <- E(net.abs)$weight[E(net.abs)$weight<0] * (-1)
+
+
+df.diameter <- data.frame("diameter"=c(diameter(net.d, directed=F), 
+                        diameter(net.p.abs, directed=F),
+                        diameter(net.abs, directed=T)), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full")))
+```
+
+```{r}
+df.diameter %>% ggbarplot(x="network", y="diameter", color = "white", fill=c("tomato", "steelblue", "gray"), width = 0.5, label = T, lab.nb.digits = 5) +
+  theme_pander() + 
+  ggtitle("Network Diameter")
+```
+#### iGraph: Centrality Degree
+
+Centrality functions (vertex level) and centralization functions (graph level). The centralization functions return res - vertex centrality, centralization, and theoretical_max - maximum centralization score for a graph of that size. The centrality function can run on a subset of nodes (set with the vids parameter). This is helpful for large graphs where calculating all centralities may be a resource-intensive and time-consuming task.
+
+Centrality is a general term that relates to measures of a node’s position in the network. There are many such centrality measures, and it can be a daunting task to wade through all of the different ways to measure a node’s importance in the network. Here, we will introduce just a few examples.
+
+
+```{r}
+df.centrality <- data.frame("centr_degree"=c(centr_degree(net.d, normalized=T)$centralization, 
+                        centr_degree(net.p, normalized=T)$centralization,
+                        centr_degree(net, normalized=T)$centralization), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full")))
+```
+
+```{r}
+df.centrality %>% ggbarplot(x="network", y="centr_degree", color = "white", fill=c("tomato", "steelblue", "gray"), width = 0.5, label = T, lab.nb.digits = 5) +
+  theme_pander() + 
+  ggtitle("Network Degree centrality ")
+```
+
+### iGraph: Betweeness (Closeness)
+
+Let’s now do the same for betweenness centrality, which is defined as the number of geodesic paths (shortest paths) that go through a given node. Nodes with high betweenness might be influential in a network if, for example, they capture the most amount of information flowing through the network because the information tends to flow through them. Here, we use the normalized version of betweenness.
+
+Closeness (centrality based on distance to others in the graph) Inverse of the node’s average geodesic distance to others in the network.
+
+```{r}
+df.sloseness <- data.frame("centr_clo"=c(centr_clo(net.d)$centralization, 
+                        centr_clo(net.p)$centralization,
+                        centr_clo(net)$centralization), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full")))
+```
+
+```{r}
+df.sloseness %>% ggbarplot(x="network", y="centr_clo", color = "white", fill=c("tomato", "steelblue", "gray"), width = 0.5, label = T, lab.nb.digits = 5) +
+  theme_pander() + 
+  ggtitle("Network Closeness")
+```
+
+### iGraph: Distances 
+
+```{r}
+df.distance <- data.frame("mean_distance"=c(mean_distance(net.d, directed=F), 
+                        mean_distance(net.p, directed=F),
+                        mean_distance(net, directed=F)), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full")))
+```
+
+```{r}
+df.distance %>% ggbarplot(x="network", y="mean_distance", color = "white", fill=c("tomato", "steelblue", "gray"), width = 0.5, label = T, lab.nb.digits = 5) +
+  theme_pander() + 
+  ggtitle("Network Closeness")
+```
+
+### iGraph: Assortativity 
+
+```{r}
+df.assortativity<- data.frame("assortativity_degree"=c(assortativity_degree(net.d, directed=F), 
+                        assortativity_degree(net.p, directed=F),
+                        assortativity_degree(net, directed=F)), 
+           "network" = factor(c("Declarative", "Procedural", "Full"), levels = c("Declarative", "Procedural", "Full"))) 
+```
+
+```{r}
+df.assortativity %>% ggbarplot(x="network", y="assortativity_degree", color = "white", fill=c("tomato", "steelblue", "gray"), width = 0.5, label = T, lab.nb.digits = 5) +
+  theme_pander() + 
+  ggtitle("Network Assortativity Degree")
+```
+
+### W in Brain connection
+
+```{r}
+#colors <- factor(power_atals$network)
+#levels(colors) <- colors14
+#power_atals$colors <- as.character(temp)
+check_atlas(power_atals)
+x1 <- W_mat
+x1[x1<0] <- 0
+
+
+p1 <- brainconn(atlas=power_atals, conmat=x1, node.color = power2011$Color, view = "top",
+          node.size = igraph::degree(net.d)*2.5, all.nodes = TRUE, 
+          edge.color = "tomato",  edge.color.weighted = FALSE, scale.edge.width = c(1,3), edge.alpha = 0.6,
+          label.edge.weight = F,  show.legend = F,
+          background.alpha = .3) #+ ggtitle("Strategy Predictability: W")
+p2 <- brainconn(atlas=power_atals, conmat=x1, node.color = power2011$Color, view = "left",
+          node.size = igraph::degree(net.d)*2.5, all.nodes = TRUE, 
+          edge.color = "tomato",  edge.color.weighted = FALSE, scale.edge.width = c(1,3), edge.alpha = 0.6,
+          label.edge.weight = F,  show.legend = F,
+          background.alpha = .3) #+ ggtitle("Strategy Predictability: W")
+p3 <- brainconn(atlas=power_atals, conmat=x1, node.color = power2011$Color, view = "back",
+          node.size = igraph::degree(net.d)*2.5, all.nodes = TRUE, 
+          edge.color = "tomato",  edge.color.weighted = FALSE, scale.edge.width = c(1,3), edge.alpha = 0.6,
+          label.edge.weight = F,  show.legend = F,
+          background.alpha = .3) #+ ggtitle("Strategy Predictability: W")
+
+x2 <- W_mat
+x2[x2>0] <- 0
+
+p4 <- brainconn(atlas=power_atals, conmat=x2*-10, node.color = power2011$Color, view = "top",
+          node.size = igraph::degree(net.p)*2.5, all.nodes = TRUE, 
+          edge.color = "steelblue",  edge.color.weighted = FALSE, 
+          scale.edge.width = c(1,3), edge.alpha = 0.6,
+          label.edge.weight = F,  show.legend = F,
+          background.alpha = .3)  
+
+
+
+p5 <- brainconn(atlas=power_atals, conmat=x2*-10, node.color = power2011$Color, view = "left",
+          node.size = igraph::degree(net.p)*2.5, all.nodes = TRUE, 
+          edge.color = "steelblue",  edge.color.weighted = FALSE, 
+          scale.edge.width = c(1,3), edge.alpha = 0.6,
+          label.edge.weight = F,  show.legend = F,
+          background.alpha = .3) 
+
+p6 <- brainconn(atlas=power_atals, conmat=x2*-10, node.color = power2011$Color, view = "back",
+          node.size = igraph::degree(net.p)*2.5, all.nodes = TRUE, 
+          edge.color = "steelblue",  edge.color.weighted = FALSE, 
+          scale.edge.width = c(1,3), edge.alpha = 0.6,
+          label.edge.weight = F,  show.legend = F,
+          background.alpha = .3) 
+```
+
+```{r fig.height=6, fig.width=6}
+png(filename = "./__cache__/figures4.png",  bg = "transparent", width =500, height = 500, units = "px", res = 150)
+p1
+```
+
+```{r fig.height=6, fig.width=6}
+png(filename = "./__cache__/figures5.png",  bg = "transparent", width =500, height = 500, units = "px", res = 150)
+p2
+```
+
+```{r fig.height=6, fig.width=6}
+png(filename = "./__cache__/figures6.png",  bg = "transparent", width =500, height = 500, units = "px", res = 150)
+p3
+```
+
+```{r fig.height=6, fig.width=6}
+png(filename = "./__cache__/figures7.png",  bg = "transparent", width =500, height = 500, units = "px", res = 150)
+p4
+```
+
+```{r fig.height=6, fig.width=6}
+png(filename = "./__cache__/figures8.png",  bg = "transparent", width =500, height = 500, units = "px", res = 150)
+
+p5
+```
+
+```{r fig.height=6, fig.width=6}
+png(filename = "./__cache__/figures9.png",  bg = "transparent", width =500, height = 500, units = "px", res = 150)
+
+p6
+```
+
+```{r eval=F}
+x1[,] <-1
+brainconn(atlas=power_atals, conmat=x1, node.color = power2011$Color, view = "top",
+          node.size = 2, all.nodes = TRUE, 
+          edge.color = "tomato",  edge.color.weighted = FALSE, scale.edge.width = c(1,3), edge.alpha = 0.6,
+          
+          background.alpha = .3)
+
+# Add a legend
+legend(1, 95, legend=power_atals$network, 
+       col=power2011$Color, lty=1:2, cex=0.8)
+```
+
+### Distribution of connections
+
+Look at the distribution of network in two groups
+
+```{r}
+
+DUPLICATE <- TRUE
+
+c1 <- Wconnectome %>% filter(W>0) %>% mutate(roi = as.integer(connection1)) %>% dplyr::select(roi) %>%  unlist()
+c2 <- Wconnectome %>% filter(W>0) %>% mutate(roi = as.integer(connection2)) %>% dplyr::select(roi) %>%  unlist()
+
+
+c3 <- Wconnectome %>% filter(W<0) %>% mutate(roi = as.integer(connection1)) %>% dplyr::select(roi) %>%  unlist()
+c4 <- Wconnectome %>% filter(W<0) %>% mutate(roi = as.integer(connection2)) %>% dplyr::select(roi) %>%  unlist()
+
+
+if (DUPLICATE) {
+  c12 <- c(c1, c2)
+  c34 <- c(c3, c4)
+} else {
+  c12 <- unique(c(c1, c2))
+  c34 <- unique(c(c3, c4))
+}
+
+df.c1 <- power2011[c12,] %>%
+  mutate(NetworkName = factor(NetworkName)) %>%
+  count(NetworkName, name = "count", .drop = F)%>%
+  right_join(power2011 %>% dplyr::select(NetworkName, Color) %>% distinct(), on="NetworkName") %>%
+  mutate(count=as.integer(ifelse(is.na(count), 0, count))) %>%
+  arrange(NetworkName)
+
+
+# df.c1 %>%
+#   ggplot(aes(x = count, y=NetworkName)) +
+#   geom_col(aes(fill = NetworkName)) +
+#   scale_fill_manual(values=colors14, guide = guide_legend(reverse = T)) +
+#   #scale_x_reverse(limits = c(8,0)) +
+#   theme_pander() + 
+#   ggtitle("Declarative network", subtitle = "Distribution of connections") +
+#   theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
+#         plot.title = element_text(size = 20),
+#         axis.text = element_text(size = 20),
+#         legend.title = element_text(size = 20),
+#         legend.text = element_text(size = 20)) 
+
+p7 <- ggbarplot(df.c1, x="NetworkName", y="count", fill = "NetworkName", color="white",
+          palette = df.c1$Color, #order = "count", 
+          rotate = TRUE, ggtheme = theme_pander(), position = position_dodge(preserve = "single"),
+          title = "Distribution of connections") +
+      scale_y_reverse(limits=c(14,0), breaks=c(0,5, 10, 15)) +
+      #scale_fill_manual(values = sort(df.c1$NetworkName, decreasing = T)) +
+      theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
+        plot.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        legend.text = element_text(size = 20))
+  
+p7
+```
+
+```{r}
+
+# count number of networks included in
+df.c2 <- power2011[c34,] %>%
+  mutate(NetworkName = factor(NetworkName)) %>%
+  count(NetworkName, name = "count", .drop = F) %>%
+  right_join(power2011 %>% dplyr::select(NetworkName, Color) %>% distinct(), on="NetworkName") %>%
+  mutate(count=ifelse(is.na(count), 0, count)) %>%
+  arrange(NetworkName) 
+
+
+# df.c2 %>%
+#   ggplot(aes(x = count, y=NetworkName)) +
+#   geom_col(aes(fill = NetworkName)) +
+#   scale_fill_manual(values=colors14, guide = guide_legend(reverse = T)) +
+#   theme_pander() + 
+#   ggtitle("Procedural network", subtitle = "Distribution of connections") +
+#   theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
+#         plot.title = element_text(size = 20),
+#         axis.text = element_text(size = 20),
+#         legend.title = element_text(size = 20),
+#         legend.text = element_text(size = 20)) 
+
+
+p8 <- ggbarplot(df.c2, x="NetworkName", y="count", fill = "NetworkName", color="white",
+          palette = df.c1$Color, #order = "count", 
+          rotate = TRUE, ggtheme = theme_pander(), 
+          title = "Distribution of connections") +
+  #scale_y_reverse() +
+  scale_y_continuous(limits = c(0,15), breaks=c(0,5, 10, 15)) +
+    theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
+        plot.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        legend.text = element_text(size = 20)) 
+
+p8
+```
+
+
+
+```{r fig.height=5, fig.width=18}
+#png("./figures/network_distributions.png", bg = "white", width =3600, height = 1000, units = "px", res = 150)
+png(filename = "./__cache__/figures3.png",  bg = "transparent", width =3600, height = 1000, units = "px", res = 150)
+ggarrange(p7, NULL, NULL, p8, 
+          #labels = c("A", "B", "C"),
+          ncol = 4, nrow = 1, align = "h", 
+          common.legend = TRUE, legend = "bottom", widths = c(1,.8,.8,1))
+
+```
+
+
+Chi-sq Test
+
+```{r}
+chisq.test(df.c1$count, df.c2$count, simulate.p.value = T, p = noi_stats$N)
+```
