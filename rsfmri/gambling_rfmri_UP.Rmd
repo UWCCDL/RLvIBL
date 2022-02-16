@@ -16,7 +16,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE, message = FALSE)
 library(tidyverse)
 library(dplyr)
 library(magrittr)
@@ -53,7 +53,7 @@ rm(list=ls())
 
 *rsfMRI data Parameters:*
 
-- rsfMRI: mr_pcorr.txt file
+- rsfMRI: R1S2 mr_pcorr.txt file
 
 - Z norm before load: False
 
@@ -108,8 +108,9 @@ if (SKIP){
   power2011$Color <- as.character(colors)
   #df.UP <- read_csv("./__cache__/REST1_SES01_MR_PCORR_UP_2022FEB_subj.csv")
   #C <- dfX.UP %>% dplyr::select(-HCPID) %>% as.matrix()
-  #C <- apply(C, 2, FUN=as.numeric)
-  #n <- dim(C)[[1]]
+  C <- C2
+  C <- apply(C, 2, FUN=as.numeric)
+  n <- dim(C)[[1]]
 } else {
   NOFLY <- c()
   SUBJS <- c()
