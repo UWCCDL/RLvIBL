@@ -1,4 +1,7 @@
-# Decoding Decision-Making Strategies Through Resting-State fMRI Data   
+## Strategy from Structure: Individual Preferences in Decision Making Strategies Adaptively Reflect Differences in Brain Network Connectivity
+
+
+### Decoding Decision-Making Strategies Through Resting-State fMRI Data   
 
 Two dominant framworks exists to explain how people make decisions from experience. In the _Reinforcement Learning_ (RL) frameowork, decisions are progressively calibrated by adjusting the expected value of an option throuh differences in reward predictions. In the _Instance Based Learning_ (IBL) and the _Decision by Sampling_ frameworks, on the other hand, decisions are supposedly made by sampling from memory the outcomes of previous choices.
 
@@ -10,17 +13,17 @@ In IBL, the expected utilities are stored as episodic memories, and decisions ar
 
 Furthermore, it is possible that different individuals behave differently, and might rely on one circuit or another. If so, it would make sense that different idividuals play to their own specific strengths, and use the system that gives the best results, given their neural makeup.
 
-## Distinguishing IBL from RL
+### Distinguishing IBL from RL
 
 Because IBL-based decisions relies on decaying traces of previous choices, it makes subtly different predictions than RL. To distinguish the two, we will model decision-making using an RL or IBL framework in ACT-R (an integrated cognitive architecture that allows to model both). Each model is fit to each individual, and the model whose parameters yield the best match (using Log Likelihood) will be taken as evidence of the decision-making strategy used.
 
-## The Task
+### The Task
 
 As a task, we are using the "Incentive Processing" task of the Human Connectome Project. Data from N=199 participants, both the behavioral data and resting-state fMRI is available. 
 
 <img src="https://docs.google.com/drawings/d/e/2PACX-1vS373PoD0nMc6mTr8kmLat6fbGaMgn2-ieAMiHCi11yYMraAO7BfZGrMErdditB9YP-zlC6DBsqs6fJ/pub?w=350&amp;h=187">
 
-## The Model
+### The Model
 
 Two distinct models: **Declarative Model** and **Procedural Model** are built in ACT-R to represent two different strategy selection preferences. See paper about the details of model 
 
