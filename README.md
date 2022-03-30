@@ -16,7 +16,34 @@ Because IBL-based decisions relies on decaying traces of previous choices, it ma
 
 ## The Task
 
-As a task, we are using the "Incentive Processing" task of the Human Connectome Project. Data is collected from N=176 participants, for whom both the behavioral data and resting-state fMRI is available. 
+As a task, we are using the "Incentive Processing" task of the Human Connectome Project. Data from N=199 participants, both the behavioral data and resting-state fMRI is available. 
+
+<img src="https://docs.google.com/drawings/d/e/2PACX-1vS373PoD0nMc6mTr8kmLat6fbGaMgn2-ieAMiHCi11yYMraAO7BfZGrMErdditB9YP-zlC6DBsqs6fJ/pub?w=350&amp;h=187">
+
+## The Model
+
+Two distinct models: **Declarative Model** and **Procedural Model** are built in ACT-R to represent two different strategy selection preferences. See paper about the details of model 
+
+**Declarative Model**
+
+<img src="https://docs.google.com/drawings/d/e/2PACX-1vRBejRO2gF2IfEnHJeLZJ18ziZwVaLjcwTzvfoNGvQgAnYsPkvTRys9qXzzsmgCR66V4ajeUUuyWNgj/pub?w=500">
+
+**Procedural Model**
+
+<img src="https://docs.google.com/drawings/d/e/2PACX-1vRe2y7P9O1r3viqCgBXPwpS_zct9VYva5SWg0VaqrIRfReu0goFNqNfsmnym6eBekoxo-TfnkLlEYQi/pub?w=500">
+
+
+### Model simulation & analysis
+
+- Model simulation data are in `actr-model`
+
+- Resting-state fMRI data analysis is in  `rfmri`
+
+- Task-based fMRI data analysis is in `tfmri`
+
+
+
+
 
 
 
