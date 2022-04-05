@@ -38,6 +38,8 @@ Two distinct models: **Declarative Model** and **Procedural Model** are built in
 
 ### Model simulation & analysis
 
+- Behavioral data are in `behavior`
+
 - Model simulation data are in `actr-model`
 
 - Resting-state fMRI data analysis is in  `rfmri`
