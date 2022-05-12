@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>My Website</title>
+    <link rel="stylesheet" href="./style.css">
+    <!-- <link rel="icon" href="./favicon.ico" type="image/x-icon"> -->
+  </head>
+  <body>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apache-arrow@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/arquero@latest"></script>
+    <main>
+        <h1>Maximum LogLikelihood Distribution</h1>  
+        <div></div>
+        <h2>Load Data</h2>
+        <div id="load"></div>
+        <p>This script visualize the distribution of max logLikelihood between M1 and M2</p>
+        <p> Tips: click each datapoint, you could see the Pswitch pattern</p>
+        <h2>Clean Data</h2>
+        <div id="clean"></div>
+
+        <h2>Visualize Data</h2>
+        
+        <div id="vis" class="float-parent-element">
+          
+          <!-- <h3>Max LogLikelihood (MLL)</h3> -->
+          <div class="float-parent-element"><canvas id="max_loglikelihood"></canvas></div>
+          
+          <!-- <h3>Probability of Switch</h3> -->
+          <div class="float-child-element"><canvas id="subj_pswitch"></canvas></div>
+          <div class="float-child-element"><canvas id="model_pswitch"></canvas></div>
+          <div class="float-child-element"></div>
+          <!-- <div class="float-child-element"><canvas id="m2_pswitch"></canvas></div> -->
+        </br>
+          <h3>Density Curve of MLL Diff (M1 - M2)</h3>
+          <div class="float-child-element"><div id="vis_hist1"></div></div>
+          <div class="float-child-element"><div id="vis_hist2"></div></div>
+        </div>
+
+        <!-- <div id="vis_pswitch"></div> -->
+        
+
+        
+
+    </main>
+	<!-- <script src="index.js"></script> -->
+  <script src="data.js"></script>
+  <script src="model_scattter.js"></script>
+  <script src="density1.js"></script>
+  <script src="density2.js"></script>
+  <script src="subj_bar.js"></script>
+  <script src="model_bar.js"></script>
+  </body>
+</html>
