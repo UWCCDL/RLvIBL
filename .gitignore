@@ -1,6 +1,7 @@
 .DS_store
 .Rhistory
 .idea/
+actr-models/model_output/
 actr-models/__pycache__
 actr-models/.ipynb_checkpoints
 actr-models/.Rhistory
@@ -15,7 +16,6 @@ actr-models/model_output/old
 actr-models/model_output/gs_check
 actr-models/model_output/seed
 actr-models/model_output/*.csv
-bin/ROI_pwer264
 cherdata
 temp/
 rsfmri/REST2
