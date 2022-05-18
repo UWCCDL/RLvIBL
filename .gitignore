@@ -1,7 +1,10 @@
 .DS_store
 .Rhistory
 .idea/
-actr-models/model_output/
+actr-models/model_output/maxloglikelihood_analysis_cache/
+actr-models/model_output/maxloglikelihood_analysis_files/
+actr-models/model_output/model_output_local/
+actr-models/model_output/model_output_local.tar.gz
 actr-models/__pycache__
 actr-models/.ipynb_checkpoints
 actr-models/.Rhistory
@@ -15,9 +18,8 @@ actr-models/venv
 actr-models/model_output/old
 actr-models/model_output/gs_check
 actr-models/model_output/seed
-actr-models/model_output/*.csv
-cherdata
-temp/
+rsfmri/__cache__/
+rsfmri/connectivity_matrix
 rsfmri/REST2
 rsfmri/REST1/*/ses-02
 rsfmri/.idea
@@ -28,12 +30,16 @@ rsfmri/*sub
 rsfmri/old
 rsfmri/REST_corr
 rsfmri/timeseries
+rsfmri/gambling_rfmri_UP_cache
+rsfmri/gambling_rfmri_UP_files
 *sub/
 bin/
 *timeseries*
 *spearman*
 *raw_corr*
 *mr_corr*
+cherdata
+temp/
 
 
 

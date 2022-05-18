@@ -1,0 +1,446 @@
+---
+title: "Maximum LogLikelihood Analysis"
+author: "Cher Yang"
+date: "5/13/2022"
+output:
+  html_document:
+    code_folding: hide
+    theme: yeti
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  word_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE, tidy = TRUE)
+```
+
+```{r}
+# data wrangling
+library(tidyverse, warn.conflicts = FALSE, quietly = TRUE)
+library(tidyr, warn.conflicts = FALSE, quietly = TRUE)
+library(dplyr, warn.conflicts = FALSE, quietly = TRUE)
+library(ggplot2)
+library(ggpubr)
+library(sjPlot)
+library(kableExtra)
+library(xtable)
+library(plotly)
+library(ggthemes)
+library(ggbeeswarm)
+
+# linear model
+library(lme4)
+library(afex) # mixed effect model
+library(permuco)
+library(remotes)
+library(permutes)
+library(coin)
+
+rm(list=ls())
+
+set.seed(0)
+```
+
+# Load Data
+
+Load Maximum LogLikelihood data
+
+
+```{r}
+
+d <- read.csv("./max_loglikelihood.csv", sep = ",") %>%
+  select(HCPID, best_model, maxLL_diff, 
+         Punishment_MostlyPunishment.subj, 
+         Reward_MostlyPunishment.subj, 
+         Reward_MostlyReward.subj, 
+         Punishment_MostlyReward.subj) %>%
+  pivot_longer(Punishment_MostlyPunishment.subj:Punishment_MostlyReward.subj,
+               names_to = "Condition",
+               values_to = "Pswitch") %>% 
+  mutate(
+    block_type = case_when(
+      Condition == "Reward_MostlyPunishment.subj" ~ "Loss",
+      Condition == "Punishment_MostlyPunishment.subj" ~ "Loss",
+      Condition == "Reward_MostlyReward.subj" ~ "Reward",
+      Condition == "Punishment_MostlyReward.subj" ~ "Reward",
+      TRUE ~ "NA"), 
+    trial_type = case_when(
+      Condition == "Punishment_MostlyReward.subj" ~ "Loss",
+      Condition == "Punishment_MostlyPunishment.subj" ~ "Loss",
+      Condition == "Reward_MostlyReward.subj" ~ "Reward",
+      Condition == "Reward_MostlyPunishment.subj" ~ "Reward",
+      TRUE ~ "NA"), 
+    ) 
+
+#d.trial = d %>% 
+#  group_by(HCPID, trial_type, best_model) %>%
+#  summarise(Pswitch = mean(Pswitch))
+```
+
+# Stat Analysis
+
+## Mixed GLM in R
+
+We could fit data using `glmer`
+
+- Random effects: `trial_type`, `block_type`
+- Fixed effects: `best_model`
+- id: `HCPID`
+- binomial distribution
+
+Fitting data to mixed effect linear model, `best_model` label is significant 
+
+```{r eval=F}
+summary(m <- glmer(data=d, Pswitch ~ d$best_model  + (trial_type+block_type|HCPID), 
+      family = "binomial"))
+```
+
+Let's try other packages.. apex library
+
+
+Significant fixed effects:
+
+  - `best_model` 
+  
+  - `trial_type` 
+
+2 way interaction effects: 
+
+  - `best_model` : `block_type`
+  
+  - `best_model` : `trial_type` 
+
+3 way interaction effects:
+
+- `best_model`:`block_type`:`trial_type` 
+
+```{r}
+#apex library
+mixed_anova <- aov_ez(
+  id = "HCPID",
+  dv = "Pswitch",
+  data = d,
+  between = "best_model",
+  within = c("block_type", "trial_type")
+)
+print(mixed_anova)
+```
+
+### Visualize mixed effects 
+
+```{r}
+ggplotly(afex_plot(mixed_anova, x = "best_model", trace = c("trial_type"), #error = "none",
+                   mapping = c("color", "shape"), data_arg = list(color = "gray", shape = 1),
+                   line_arg = list(color = c('tomato2', 'tomato2', 'forestgreen', 'forestgreen'), size=2),
+                   data_plot = T, point_arg = list(size = 5, 
+                                                   color = rep(c('tomato2', 'forestgreen'), each=2), 
+                                                   shape = rep(c('x', '.'), each=2))) +
+           labs(title = "Behaviror: Trial effect between two models", 
+                x = "ACT-R Model Type", y = "Probability of Switch") + 
+           theme_bw())
+```
+
+
+```{r}
+ggplotly(afex_plot(mixed_anova, x = "best_model", trace = c("block_type"), #error = "none",
+                   mapping = c("color", "shape"), data_arg = list(color = "gray", shape = 1),
+                   line_arg = list(color = c('tomato2', 'tomato2', 'forestgreen', 'forestgreen'), size=2),
+                   data_plot = T, point_arg = list(size = 5, 
+                                                   color = rep(c('tomato2', 'forestgreen'), each=2), 
+                                                   shape = rep(c('x', '.'), each=2))) +
+           labs(title = "Behaviror: Block effect between two models", 
+                x = "ACT-R Model Type", y = "Probability of Switch") + 
+           theme_bw())
+
+```
+
+Similarly, fit data into mixed effect model
+
+```{r}
+m1 <- mixed(Pswitch ~ best_model + (trial_type + block_type | HCPID), d, 
+            method = "LRT", 
+            all_fit = TRUE, 
+            family = binomial)
+nice(m1)
+xtable(anova(m1))
+summary(m1)
+```
+
+
+
+### Permutation Test
+
+Next, we could use apex package to perform permutation test.
+
+```{r}
+d.block = d %>% 
+  group_by(HCPID, best_model, block_type) %>%
+  summarise(Pswitch = mean(Pswitch), .groups = "drop") %>%
+  spread(key = block_type, value = Pswitch) %>%
+  mutate(block_effect = Reward - Loss) %>%
+  select(HCPID, best_model, block_effect) %>%
+  spread(key = best_model, value = block_effect)
+
+d.trial = d %>% 
+  group_by(HCPID, best_model, trial_type) %>%
+  summarise(Pswitch = mean(Pswitch), .groups = "drop") %>%
+  spread(key = trial_type, value = Pswitch) %>%
+  mutate(trial_type = Reward - Loss) %>%
+  select(HCPID, best_model, trial_type) %>%
+  spread(key = best_model, value = trial_type)
+
+d.block.m1 <- d.block %>% select(m1) %>% drop_na()
+d.block.m2 <- d.block %>% select(m2) %>% drop_na()
+
+d.trial.m1 <- d.trial %>% select(m1) %>% drop_na()
+d.trial.m2 <- d.trial %>% select(m2) %>% drop_na()
+```
+
+```{r}
+compare.2.vectors(d.block.m1$m1, d.block.m2$m2, paired = FALSE, na.rm = FALSE,
+  tests = c("parametric", "nonparametric"), coin = TRUE,
+  alternative = "two.sided",
+  wilcox.exact = NULL, wilcox.correct = TRUE)
+
+```
+
+```{r}
+compare.2.vectors(d.trial.m1$m1, d.trial.m2$m2, paired = FALSE, na.rm = FALSE,
+  tests = c("parametric", "nonparametric"), coin = TRUE,
+  alternative = "two.sided",
+  wilcox.exact = NULL, wilcox.correct = TRUE)
+
+```
+
+
+
+```{r}
+perm.lmer(Pswitch ~ best_model + (trial_type + block_type | HCPID), data=d, family = binomial(),  type = "regression")
+```
+
+We could also simulate mean difference and calculate the p-value by creating our own permutation test
+
+  **Block effect**: Pswitch(Reward Block) - Pswitch(Loss Block)
+  
+  **Trial effect**: Pswitch(Reward Trial) - Pswitch(Loss Trial)
+  
+  **Mean Difference of Block Type**: Block effect(M1) - Block effect(M2) 
+  
+  **Mean Difference of Trial Type**: Trial effect(M1) - Trial effect(M2) 
+
+
+```{r}
+shuffle_labels <- function(d) {
+  res <- d %>% 
+    select(HCPID, best_model) %>% 
+    unique()
+  res$best_model <- sample(res$best_model, replace = T)
+  res <- d %>% select(-best_model) %>%
+    left_join(res, by = "HCPID")
+  return (res)
+}
+
+block_effect <- function(dat) {
+  res = dat %>% group_by(best_model, block_type) %>%
+    summarise(Pswitch = mean(Pswitch), .groups = 'drop') %>%
+    pivot_wider(names_from = block_type, values_from = Pswitch) %>%
+    mutate(block_effect.RL = Reward-Loss) %>%
+    select(best_model, block_effect.RL) %>%
+    pivot_wider(names_from = best_model, values_from = block_effect.RL) %>%
+    mutate(diff.m1m2 = m1-m2) 
+  return (res)
+}
+
+trial_effect <- function(d) {
+  res = d %>% group_by(best_model, trial_type) %>%
+    summarise(Pswitch = mean(Pswitch), .groups = 'drop') %>%
+    pivot_wider(names_from = trial_type, values_from = Pswitch) %>%
+    mutate(trial_effect.RL = Reward-Loss) %>%
+    select(best_model, trial_effect.RL) %>%
+    pivot_wider(names_from = best_model, values_from = trial_effect.RL) %>%
+    mutate(diff.m1m2 = m1-m2) 
+  return (res)
+}
+```
+
+```{r warning=FALSE}
+my_block_effect <- block_effect(d)
+my_trial_effect <- trial_effect(d)
+
+# simulate random block effect
+n <- 5000
+simulated_block_effect = c()
+simulated_trial_effect = c()
+
+for (x in 1:n) {
+  d0 <- shuffle_labels(d)
+  curr.block <- block_effect(d0)
+  curr.trial <- trial_effect(d0)
+  simulated_block_effect <- c(simulated_block_effect, curr.block$diff.m1m2)
+  simulated_trial_effect <- c(simulated_trial_effect, curr.trial$diff.m1m2)
+}
+```
+
+Calculate one-side and two-side p-value
+
+```{r}
+# Let's compute the p-value
+if (my_block_effect$diff.m1m2 < 0) {
+  pvalue.block <- sum(my_block_effect$diff.m1m2 > simulated_block_effect) / n
+} else {
+  pvalue.block <- sum(my_block_effect$diff.m1m2 <= simulated_block_effect) / n
+}
+paste("Block Type: The one-sided p-value is ", round(pvalue.block,3))
+paste("Block Type: The two-sided p-value is ", 2 * round(pvalue.block,3))
+
+if (my_trial_effect$diff.m1m2 < 0) {
+  pvalue.trial <- sum(my_trial_effect$diff.m1m2 > simulated_trial_effect) / n
+} else {
+  pvalue.trial <- sum(my_trial_effect$diff.m1m2 <= simulated_trial_effect) / n
+}
+paste("Trial Type: The one-sided p-value is ", round(pvalue.trial,3))
+paste("Trial Type: The two-sided p-value is ", 2 * round(pvalue.trial,3))
+
+#pvalue.greater <- sum(my_block_effect$diff.m1m2 > simulated_block_effect) / n
+#pvalue.smaller <- sum(my_block_effect$diff.m1m2 <= simulated_block_effect) / n
+
+#paste("One-sided p-value (greater) is", pvalue.greater)
+#paste("One-sided p-value (smaller) is", pvalue.smaller)
+```
+
+
+Plot the distribution of mean difference of **Block Type** between declarative model vs. procedural model
+
+```{r}
+gghistogram(simulated_block_effect, add = "mean", add_density = F, bins = 50, rug = T, fill = 'gray',
+            title = "Histogram of simulated mean difference: Block Type", xlab = "mean_difference", ylab="simulated counts") +
+  geom_vline(aes(xintercept=my_block_effect$diff.m1m2), linetype="dashed", color = "red") +
+  annotate(geom = "text", x = my_block_effect$diff.m1m2*0.8, y = 200, 
+           label = paste("observed p = ", 2 * round(pvalue.block,3)))
+```
+
+
+Plot the distribution of mean difference of **Trial Type** between declarative model vs. procedural model
+
+```{r}
+gghistogram(simulated_trial_effect, add = "mean", add_density = F, bins = 50, rug = T, fill = 'gray',
+            title = "Histogram of simulated mean difference: Trial Type", xlab = "mean_difference", ylab="simulated counts") +
+  geom_vline(aes(xintercept=my_trial_effect$diff.m1m2), linetype="dashed", color = "red") +
+  annotate(geom = "text", x = my_trial_effect$diff.m1m2*0.8, y = 200, 
+           label = paste("observed p = ", 2 * round(pvalue.trial,3)))
+```
+
+
+### Compare different ways of calculating MaxLL 
+
+There are different ways of calculating maxLL. Next we could explore which way gives us most distinguishable model labels
+
+- Group by `Block Type` and `Trial Type`
+
+- Group by `Block Type` only
+
+- Group by `Trial Type` only
+
+```{r}
+d.block <- read.csv("./max_loglikelihood_block.csv", sep = ",") %>%
+  select(HCPID, best_model, maxLL_diff, 
+         MostlyPunishment.subj, 
+         MostlyReward.subj) %>%
+  pivot_longer(MostlyPunishment.subj:MostlyPunishment.subj,
+               names_to = "Condition",
+               values_to = "Pswitch") %>% 
+  mutate(
+    block_type = case_when(
+      Condition == "MostlyReward.subj" ~ "Reward",
+      Condition == "MostlyPunishment.subj" ~ "Loss",
+      TRUE ~ "NA")) 
+
+d.trial <- read.csv("./max_loglikelihood_trial.csv", sep = ",") %>%
+  select(HCPID, best_model, maxLL_diff, 
+         Reward.subj, 
+         Punishment.subj) %>%
+  pivot_longer(Reward.subj:Punishment.subj,
+               names_to = "Condition",
+               values_to = "Pswitch") %>% 
+  mutate(
+    block_type = case_when(
+      Condition == "Reward.subj" ~ "Reward",
+      Condition == "Punishment.subj" ~ "Loss",
+      TRUE ~ "NA"), 
+    trial_type = case_when(
+      Condition == "Reward.subj" ~ "Reward",
+      Condition == "Punishment.subj" ~ "Loss",
+      TRUE ~ "NA")) 
+
+```
+
+
+Below plot shows the differences of MaxLL between two models. Different color indicates different ways of calculating MaxLL. 
+
+  - For `Both`, the maxLL was calcualted with aggregated Pswitch by both block type and trrial type
+
+  - For `block_type`, the maxLL was calcualted with aggregated Pswitch  only by block type
+
+  - For `trial_type`, the maxLL was calcualted with aggregated Pswitch  only by trial type
+  
+x-axis is the absolute difference between maxLL of model1 (declarative model) and maxLL of model2 (procedural model).
+
+Take-away: If only look at `block effect` (blue density curve), two model are more distinguisable from each other.
+
+```{r}
+maxLL_diff = data.frame(maxLL_type=c(rep("both", length(d$maxLL_diff)), 
+                               rep("block_type", length(d.block$maxLL_diff)), 
+                               rep("trial_type", length(d.trial$maxLL_diff))), 
+                        maxLL_diff = c(d$maxLL_diff, 
+                                       d.block$maxLL_diff, 
+                                       d.trial$maxLL_diff)) %>%
+  mutate(value_type=factor(maxLL_type, levels = c("both", "block_type", "trial_type")))
+ 
+ggdensity(data=maxLL_diff, x="maxLL_diff", fill = "maxLL_type", palette = "Set1", add = "mean", 
+          color = "darkgray", alpha = .5,
+          xlab = "max loglikelihood abs(model1 - model2)",
+          title = "Density Plot of Max LogLikelihood Differences") +
+  theme_pander()
+```
+
+Let's check whether three different ways give us reliable individual strategy selection. 
+```{r}
+best_models = d.trial %>% select(HCPID, best_model) %>% unique() %>% 
+  left_join(d.block %>% select(HCPID, best_model) %>% unique(), by = "HCPID", suffix = c(".trial", ".block")) %>%
+  left_join(d %>% select(HCPID, best_model) %>% unique(), by = "HCPID") %>%
+  mutate(m1_count = if_else(best_model=='m1', 1, 0) + 
+           if_else(best_model.trial=='m1', 1, 0) + 
+           if_else(best_model.block=='m1', 1, 0)) %>%
+  arrange(m1_count)
+```
+
+Unfortunately, if we use `block type` or `trial type` solely to calcualte maxLL, it simply believes all subjects use m1. This is clearly not what we wants. 
+
+```{r}  
+best_models %>%
+  count(best_model)
+
+
+best_models %>%
+  count(best_model.trial)
+
+
+best_models %>%
+  count(best_model.block)
+         
+``` 
+
+
+### Apply weights to labels
+
+```{r}
+d %>% select(HCPID, best_model, maxLL_diff) %>%
+  arrange(best_model, desc(maxLL_diff))
+```

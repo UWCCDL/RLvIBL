@@ -16,7 +16,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = FALSE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE)
 library(tidyverse)
 library(dplyr)
 library(magrittr)
@@ -45,6 +45,7 @@ library(RColorBrewer)
 library(networkD3)
 library(ggpubr)
 library(DescTools)
+library(plotly)
 #library(data.table)
 rm(list=ls())
 ```
@@ -53,7 +54,7 @@ rm(list=ls())
 
 *rsfMRI data Parameters:*
 
-- rsfMRI: R1S2 mr_pcorr.txt file
+- rsfMRI: R1S1 mr_pcorr.txt file
 
 - Z norm before load: False
 
@@ -63,7 +64,7 @@ rm(list=ls())
 
 - Z norm in glmnet: True
 
-- W: constant declarative=0.5, procedural=0.5 (because of UP sampling)
+- W: ~~constant declarative=0.5, procedural=0.5 (because of UP sampling)~~ normalized `maxLL_difference` (min max normalization) 
 
 - Hyperparameter tuning: nfolds = length(Y)
 
@@ -72,6 +73,8 @@ rm(list=ls())
 *Nested CV Parameters*
 
 - Betas: |mean beta| > 0.05
+
+- Lambda: ~~1se~~ min
 
 *iGraph Parameters*
 
@@ -83,7 +86,7 @@ rm(list=ls())
 # Load subject data
 
 ```{r}
-power2011 <- read_csv("../bin/power_2011.csv", 
+power2011 <- read_csv("../behavior/power_2011.csv", 
                       col_types = cols(ROI=col_double(),
                                        X = col_double(),
                                        Y = col_double(),
@@ -272,13 +275,14 @@ X <- C[,as_vector(I)]
 ```
 
 ```{r}
-dvs <- read_csv("../actr-models/model_output/MODELLogLikelihood.csv",
+dvs <- read_csv("../actr-models/model_output/max_loglikelihood.csv",
                 col_types = cols(
                   .default = col_double(),
                   HCPID = col_character(),
-                  best_model = col_character()
+                  best_model = col_character(), 
+                  maxLL_diff = col_double()
                 )) %>% 
-  dplyr::select(HCPID, best_model) %>%
+  dplyr::select(HCPID, best_model, maxLL_diff) %>%
   arrange(HCPID)
 ```
 
@@ -351,10 +355,25 @@ To analyze the data, we will use Lasso, a statistical learning system based on p
 
 Most of the entries in our $Y$ vector are coded as "0" (i.e., most participants use the memory strategy), which creates an imbalance. We are going to create an appropriate set of weights so that the two classes are balanced.
 
+New: Instead of using proportion as weights, we apply maxLL_difference as weight to increase importannce of individual data who has larger maxLL_difference.
+
 ```{r}
+
+# based on proportion of two labels
 W <- Y
 W[W == 0] <- mean(Y)
 W[W == 1] <- (1-mean(Y))
+
+# normalize maxLL diff
+min_max_norm <- function(x) {
+    (x - min(x)) / (max(x) - min(x))
+}
+
+
+# based on maxLL
+maxLL_diff = dfY.UP %>% left_join(dvs, on="HCPID") %>%
+  mutate(maxLL_diff_norm = min_max_norm(maxLL_diff))
+W <- maxLL_diff$maxLL_diff_norm
 ```
 
 
@@ -390,13 +409,15 @@ Now, let's look at the cross-validation error profile.
 plot(fit.cv)
 ```
 
-The profile has the characteristic U-shape or increasing curve, with more error as $\lambda$ increases. As recommended by Tibishirani, we will select the "lambda 1SE" value, which is the largest $\lambda$ value that does not differ by more tha 1 SE from the $\lambda$ value that gives us the minimum cross validation error. This guarantees the maximum generalizability. 
+The profile has the characteristic U-shape or increasing curve, with more error as $\lambda$ increases. ~~As recommended by Tibishirani, we will select the "lambda 1SE" value, which is the largest $\lambda$ value that does not differ by more tha 1 SE from the $\lambda$ value that gives us the minimum cross validation error. This guarantees the maximum generalizability.~~
+
+We will select the "lambda min" value, leaving approximately 68 non-zero connections.
 
 We can also visualize the profile of the beta weights of each connection for different values of $\lambda$.
 
 ```{r}
 plot(fit, sub="Beta Values for Connectivity") 
-L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.1se)]))
+L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.min)]))
 abline(v=L1norm, lwd=2, lty=2)
 ```
 
@@ -426,7 +447,8 @@ The min $\lambda_{min}$ is `r fit.cv$lambda.min`, The 1se min $\lambda_{min}$ is
 Let's have a better look at the relevant connections that survive the Lass penalty at the value of $\lambda_{min} + 1 SE$. We start by saving these connections in a tibble, and saving the data on a file for later use.
 
 ```{r}
-betas <- fit$beta[, which(fit$lambda==fit.cv$lambda.1se)]
+#betas <- fit$beta[, which(fit$lambda==fit.cv$lambda.1se)]
+betas <- fit$beta[, which(fit$lambda==fit.cv$lambda.min)]
 conn_betas <- as_tibble(data.frame(index=I$index, Beta=betas))
 connectome <- order %>%
   filter(index %in% I$index) %>%
@@ -585,12 +607,30 @@ plot_roc_slide <- function(Y, Yp, title) {
 
 ```{r}
 # validation data misclassification error
-fit.cv.accuracy <- 1-assess.glmnet(fit.cv, X, Y, weights = W, s="lambda.1se", family = "binomial")$class %>% as.vector()# best lambda cv error
-fit.cv.auc <- assess.glmnet(fit.cv, X, Y, weights = W, s="lambda.1se", family = "binomial")$auc %>% as.vector()# best lambda cv error
+fit.cv.accuracy <- 1-assess.glmnet(fit.cv, X, Y, 
+                                   weights = W, 
+                                   s="lambda.min", #"lambda.1se", 
+                                   family = "binomial")$class %>% as.vector()# best lambda cv error
+
+
+fit.cv.auc <- assess.glmnet(fit.cv, X, Y, 
+                            weights = W, 
+                            s="lambda.min", 
+                            family = "binomial")$auc %>% as.vector()# best lambda cv error
   
 # training data prediction probabilities
-fit.cv.pred <- predict(fit.cv, newx = X, weights = W, s="lambda.1se", type="class", family = "binomial")%>% as.numeric()
-fit.cv.predprob <- predict(fit.cv, newx = X, weights = W, s="lambda.1se", type="response", family = "binomial")%>% as.numeric()
+fit.cv.pred <- predict(fit.cv, newx = X, 
+                       weights = W, 
+                       s="lambda.min", 
+                       type="class", 
+                       family = "binomial")%>% as.numeric()
+
+
+fit.cv.predprob <- predict(fit.cv, 
+                           newx = X, 
+                           weights = W, 
+                           s="lambda.min",
+                           type="response", family = "binomial")%>% as.numeric()
 
 ```
 
@@ -862,9 +902,9 @@ for (i in 1:N) {
   lambda <- fit.cv$lambda.min
   nzero <- fit.cv$nzero[which(fit.cv$lambda == fit.cv$lambda.min)]
   
-  if (fit.cv$nzero[which(fit.cv$lambda == fit.cv$lambda.1se)] > 0) {
-    lambda <- fit.cv$lambda.1se
-    nzero <- fit.cv$nzero[which(fit.cv$lambda == fit.cv$lambda.1se)]
+  if (fit.cv$nzero[which(fit.cv$lambda == fit.cv$lambda.min)] > 0) {
+    lambda <- fit.cv$lambda.min
+    nzero <- fit.cv$nzero[which(fit.cv$lambda == fit.cv$lambda.min)]
   }
   
   if (nzero < minF) {
@@ -1000,7 +1040,7 @@ for(i in 1:nrounds) {
 ```
 
 Visualize Prediction vs. Observed on Training and Testing data '
-The Yp is calcualted by averaged across each round
+The Yp is calculated by averaged across each round
 
 ### Predicted vs. Observed
 ```{r fig.height=6, fig.width=6}
@@ -1196,7 +1236,7 @@ The model does converge, but its overall classification error is much higher.
 ```{r}
 plot(fit_wo, sub="Beta Values for Connectivity")
 
-L1norm <- sum(abs(fit_wo$beta[,which(fit_wo$lambda==fit_wo.cv$lambda.1se)]))
+L1norm <- sum(abs(fit_wo$beta[,which(fit_wo$lambda==fit_wo.cv$lambda.min)]))
 abline(v=L1norm, lwd=2, lty=2)
 ```
 
@@ -1226,7 +1266,7 @@ ggplot(lasso_uber, aes(x = lambda, y = error, fill=Model)) +
   xlab(expression(lambda)) +
   ylab("Cross-Validation Error") +
   ggtitle(expression(paste(bold("Cross Validation Error Across "), lambda))) +
-  geom_vline(xintercept = fit.cv$lambda.1se,
+  geom_vline(xintercept = fit.cv$lambda.min,
              linetype="dashed") +
   ylim(0,1) +
   theme_pander() +
@@ -1437,7 +1477,7 @@ circos.clear()
 ```
 
 
-```{r fig.height=8, fig.width=8}
+```{r fig.height=10, fig.width=10}
 png(filename = "./__cache__/figures2.png",  bg = "transparent", width =500, height = 500, units = "px", res = 150)
 chordDiagram(W_mat, directional = FALSE, transparency = 0.5, self.link = 2  , symmetric = TRUE, scale = F, reduce = F,
              annotationTrack = c("grid", "axis"),
@@ -1718,30 +1758,30 @@ df.c1 <- power2011[c12,] %>%
   arrange(NetworkName)
 
 
-# df.c1 %>%
-#   ggplot(aes(x = count, y=NetworkName)) +
-#   geom_col(aes(fill = NetworkName)) +
-#   scale_fill_manual(values=colors14, guide = guide_legend(reverse = T)) +
-#   #scale_x_reverse(limits = c(8,0)) +
-#   theme_pander() + 
-#   ggtitle("Declarative network", subtitle = "Distribution of connections") +
-#   theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
-#         plot.title = element_text(size = 20),
-#         axis.text = element_text(size = 20),
-#         legend.title = element_text(size = 20),
-#         legend.text = element_text(size = 20)) 
-
-p7 <- ggbarplot(df.c1, x="NetworkName", y="count", fill = "NetworkName", color="white",
-          palette = df.c1$Color, #order = "count", 
-          rotate = TRUE, ggtheme = theme_pander(), position = position_dodge(preserve = "single"),
-          title = "Distribution of connections") +
-      scale_y_reverse(limits=c(14,0), breaks=c(0,5, 10, 15)) +
-      #scale_fill_manual(values = sort(df.c1$NetworkName, decreasing = T)) +
-      theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
+p7 <- df.c1 %>%
+  ggplot(aes(x=count, y=NetworkName)) +
+  geom_col(aes(fill = NetworkName)) +
+   scale_fill_manual(guide = guide_legend(reverse = T), values = df.c2$Color) +
+  scale_x_reverse() +
+  theme_pander() +
+  ggtitle("Declarative network", subtitle = "Distribution of connections") +
+  theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
         plot.title = element_text(size = 20),
         axis.text = element_text(size = 20),
         legend.title = element_text(size = 20),
         legend.text = element_text(size = 20))
+
+# p7 <- ggbarplot(df.c1, x="NetworkName", y="count", fill = "NetworkName", color="white",
+#           palette = df.c1$Color, #order = "count", 
+#           rotate = TRUE, ggtheme = theme_pander(), position = position_dodge(preserve = "single"),
+#           title = "Distribution of connections") +
+#       scale_y_reverse(limits=c(14,0), breaks=c(0,5, 10, 15)) +
+#       #scale_fill_manual(values = sort(df.c1$NetworkName, decreasing = T)) +
+#       theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
+#         plot.title = element_text(size = 20),
+#         axis.text = element_text(size = 20),
+#         legend.title = element_text(size = 20),
+#         legend.text = element_text(size = 20))
   
 p7
 ```
@@ -1756,33 +1796,36 @@ df.c2 <- power2011[c34,] %>%
   mutate(count=ifelse(is.na(count), 0, count)) %>%
   arrange(NetworkName) 
 
+p8 <- df.c2 %>%
+  ggplot(aes(y = count, x=NetworkName)) +
+  geom_col(aes(fill=NetworkName)) +
+  coord_flip() +
+  scale_fill_manual(guide = guide_legend(reverse = T), values = df.c2$Color) +
+  theme_pander() +
+  ggtitle("Procedural network", subtitle = "Distribution of connections") +
+  theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
+        plot.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        legend.text = element_text(size = 20))
 
-# df.c2 %>%
-#   ggplot(aes(x = count, y=NetworkName)) +
-#   geom_col(aes(fill = NetworkName)) +
-#   scale_fill_manual(values=colors14, guide = guide_legend(reverse = T)) +
-#   theme_pander() + 
-#   ggtitle("Procedural network", subtitle = "Distribution of connections") +
-#   theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
+
+# ggbarplot(df.c2 , x="NetworkName", y="count", fill = "NetworkName", color="white",
+#           palette = df.c2$Color, #order = "count", 
+#           rotate = TRUE, ggtheme = theme_pander(), 
+#           title = "Distribution of connections") +
+#   #scale_y_continuous(limits = c(0,15), breaks=c(0,5, 10, 15)) +
+#   #scale_fill_discrete(breaks=rev(df.c2$NetworkName), ) +
+#   scale_fill_discrete(guide = guide_legend(reverse=TRUE)) +
+#   theme(legend.position = "right", 
+#         axis.text.y = element_blank(), 
+#         axis.title.y = element_blank(),
 #         plot.title = element_text(size = 20),
 #         axis.text = element_text(size = 20),
 #         legend.title = element_text(size = 20),
 #         legend.text = element_text(size = 20)) 
-
-
-p8 <- ggbarplot(df.c2, x="NetworkName", y="count", fill = "NetworkName", color="white",
-          palette = df.c1$Color, #order = "count", 
-          rotate = TRUE, ggtheme = theme_pander(), 
-          title = "Distribution of connections") +
-  #scale_y_reverse() +
-  scale_y_continuous(limits = c(0,15), breaks=c(0,5, 10, 15)) +
-    theme(legend.position = "right", axis.text.y = element_blank(), axis.title.y = element_blank(),
-        plot.title = element_text(size = 20),
-        axis.text = element_text(size = 20),
-        legend.title = element_text(size = 20),
-        legend.text = element_text(size = 20)) 
-
 p8
+
 ```
 
 
