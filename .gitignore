@@ -33,7 +33,6 @@ rsfmri/timeseries
 rsfmri/gambling_rfmri_UP_cache
 rsfmri/gambling_rfmri_UP_files
 *sub/
-bin/
 *timeseries*
 *spearman*
 *raw_corr*
