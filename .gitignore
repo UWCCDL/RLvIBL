@@ -41,6 +41,6 @@ cherdata
 temp/
 *cache*
 *tempt*
-
+*.RData*
 
 
