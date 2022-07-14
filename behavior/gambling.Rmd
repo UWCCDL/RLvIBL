@@ -47,7 +47,8 @@ First we load the data. I have concatenated all of the Eprime files for the firs
 
 
 ```{r}
-gambling <- read_tsv("gambling_data.txt")
+gambling <- read_tsv("gambling_data.txt") %>%
+  filter(HCPID!="HCPID")
 gambling <- gambling %>%
   filter(!is.na(TrialType)) 
 
@@ -65,7 +66,7 @@ blockId <- sort(rep(1:4, 8))
 gambling <- gambling %>% 
   group_by(HCPID, RunNumber) %>%
   mutate(BlockId = blockId, 
-         Response = if_else(is.na(QuestionMark.RESP), 0, QuestionMark.RESP))
+         Response = if_else(is.na(QuestionMark.RESP), "0", QuestionMark.RESP))
 ```
 
 We also want to correctly identify the type of block, Mostly Reward or Mostly Pubishment. For this, we will use the modal feedback within each block.
@@ -178,6 +179,7 @@ gambling <- gambling %>%
          PreviousFeedback, FeedbackImage)
 ```
 
+
 If we aggregate the _Switch_ measure across block and trial types, we obtain the mean probability of a switch after a Reward or a Punishment, by block. Before aggregating, we need to remove the 'no response' trials.
 
 ```{r}
@@ -192,23 +194,34 @@ aggregate <- gambling %>%
            #PreviousFeedback,
            ) %>%
   summarise(PSwitch = mean(ResponseSwitch),
-            RT = mean(RT)
-            )
+            RT = mean(as.numeric(RT), na.rm = TRUE))
 ```
 
 And now, let's visualize the data.
 
 ```{r}
-ggplot(aggregate,
-       aes(x = TrialType, y = PSwitch, col = TrialType)) +
+#jpeg(filename = "./figure1.jpeg", width = 1200, height = 600, units = "px", 
+#    pointsize = 12, quality = 100, bg = "white")
+
+aggregate %>%
+  mutate(BlockType = factor(ifelse(BlockType=="Mostly Punishment", 
+                                   "Mostly Loss", "Mostly Win"),
+                            levels = c("Mostly Win", "Mostly Loss"))) %>%
+  ggplot(aes(x = TrialType, y = PSwitch, col = TrialType)) +
   facet_grid( ~ BlockType, labeller = label_both) +
   geom_point(position = position_jitter(width = 0.1, height = 0.05),
-             alpha = 0.1) +
+             alpha = 0.5) +
+  geom_line(aes(group = HCPID), alpha = 0.5, color='darkgray') + 
   scale_color_brewer(palette = "Set2") +
-  stat_summary(fun.data = "mean_cl_boot", col="black") +
-  theme_pander()
+  scale_x_discrete(labels = c("Win", "Loss", "Neutral")) +
+  stat_summary(fun.data = "mean_cl_boot", col="black", size=3, alpha=.5) +
+  labs(x = "Feedback", y = "Probability of response switching", 
+       title = "The probability of response switching") +
+  theme_pander(base_size = 30, lp = "none")      
+ggsave("figure1.jpeg", units="in", width=15, height=7, dpi=300)
+```
 
-
+```{r}
 ggplot(aggregate,
        aes(x = TrialType, y = PSwitch, col = TrialType)) +
   facet_grid(~ BlockType) +
@@ -249,6 +262,16 @@ aov(PSwitch ~ BlockType * TrialType +
   kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
+```{r}
+aov(data=noneutral, RT ~ BlockType * TrialType + 
+              Error(HCPID/(BlockType * TrialType)))  %>%
+  anova_summary() %>%
+  xtable() %>%
+  kable(digits=4) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+
 So, there is not significant effect of feedback on WSLS probabilities.
 
 # Response Times
@@ -266,7 +289,7 @@ pf_aggregate <- gambling %>%
            PreviousFeedback,
            ) %>%
   summarise(PSwitch = mean(ResponseSwitch),
-            RT = mean(RT)
+            RT = mean(as.numeric(RT))
             )
 
 pf_aggregate$PreviousFeedback <- as_factor(pf_aggregate$PreviousFeedback)
@@ -283,11 +306,11 @@ ggplot(pf_aggregate,
        aes(x = PreviousFeedback, y = RT, col = PreviousFeedback)) +
   facet_grid( ~ BlockType) +
   geom_point(position = position_jitter(width = 0.1, height = 0.05),
-             alpha = 0.1) +
+             alpha = 0.5) +
+  geom_line(aes(group = HCPID), alpha = 0.5, color='gray') + 
   scale_color_brewer(palette = "Set2") +
-  stat_summary(fun.data = "mean_cl_boot", col="black") +
+  stat_summary(fun.data = "mean_cl_boot", col="black", size=1, alpha=.7) +
   theme_pander()
-         
 
 ggplot(pf_aggregate, 
        aes(x = PreviousFeedback, y = RT, col = PreviousFeedback)) +
@@ -310,14 +333,11 @@ pf_noneutral$PreviousFeedback <- as_factor(pf_noneutral$PreviousFeedback)
 
 And we can run a repeated measures ANOVA to see whether there is a significant effect.
 
-```{r}
-aov(RT ~ BlockType * PreviousFeedback + 
-      Error(HCPID / (BlockType * PreviousFeedback)), 
-    pf_noneutral)  %>%
-  anova_summary() %>%
-  xtable() %>%
-  kable(digits=4) %>%
-  kable_styling(bootstrap_options = c("striped", "hover"))
-```
 
 This time, both effects (but not their interaction) are significant.
+
+## MAX-LL Analysis
+
+```{r}
+max_ll = read.csv("../actr-models/model_output/max_loglikelihood.csv")
+```

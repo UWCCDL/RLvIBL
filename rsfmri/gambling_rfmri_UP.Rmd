@@ -313,12 +313,12 @@ corX <- cor(X)
 distCor <- as_vector(corX[lower.tri(corX, diag = F)])
 distTibble <- as_tibble(data.frame(R=distCor))
 
-ggplot(distTibble, aes(x=R)) +
+ggplotly(ggplot(distTibble, aes(x=R)) +
   geom_histogram(col="white", alpha=0.5, binwidth = 0.05) +
-  theme_pander() +
+  #theme_few() +
   ylab("Number of Correlations") +
   xlab("Correlation Value") +
-  ggtitle("Distribution of Correlation Values Between Regressors")
+  ggtitle("Distribution of Correlation Values Between Regressors"))
 ```
 
 All in all, the collinearity is not that bad---all regressors are correlated at $|r| < 0.25$, and most of them are correlated at $|r| < 0.1$, with a peak at $r = 0$.
@@ -330,15 +330,15 @@ And now, let's visualize the histogram of the dependent variable we are trying t
 ```{r}
 dependent <- as_tibble(data.frame(strategy=dvs$best_model))
 
-ggplot(dependent, aes(x = factor(strategy), fill=factor(strategy))) +
+ggplotly(ggplot(dependent, aes(x = factor(strategy), fill=factor(strategy))) +
   geom_bar(col="white", alpha=0.5, width = .5) +
   scale_fill_nejm() +
   xlab("Strategy") +
   ylab("Number of Participants") +
   scale_x_discrete(labels=c( "m1" = "Declarative",  "m2" = "Procedural")) +
   ggtitle("Distribution of Strategy Use") +
-  theme_pander() +
-  theme(legend.position = "none")
+  #theme_base() +
+  theme(legend.position = "none"))
 
 ```
 
@@ -483,48 +483,50 @@ In sum, connectome has `r dim(connectome)[[1]]` non-zero connections, `r sum(con
 
 ```{r}
 plot_prediction <- function(Y, Yp, title) {
-wcomparison <- tibble(Observed = Y,
-                    Predicted = Yp,
-                    DiscretePredicted = ifelse(Yp < 0.5, 0, 1))
-            
-wcomparison %<>% mutate(Accuracy = ifelse(DiscretePredicted == Observed,
-                                          "Correct", 
-                                          "Misclassified")) %>% drop_na()
-  
-#rval <- floor(100*cor(Y, Yp))/100
-aval <- round(100*nrow(dplyr::filter(wcomparison, Accuracy %in% "Correct")) / nrow(wcomparison),2)
+  wcomparison <- tibble(Observed = Y,
+                      Predicted = Yp,
+                      DiscretePredicted = ifelse(Yp < 0.5, 0, 1))
+              
+  wcomparison %<>% mutate(Accuracy = ifelse(DiscretePredicted == Observed,
+                                            "Correct", 
+                                            "Misclassified")) %>% drop_na()
+    
+  #rval <- floor(100*cor(Y, Yp))/100
+  aval <- round(100*nrow(dplyr::filter(wcomparison, Accuracy %in% "Correct")) / nrow(wcomparison),2)
 
-p <- ggplot(wcomparison, aes(x=Predicted, y=Observed, 
-                             col=Accuracy)) +
-  geom_point(size=4, alpha=0.6, 
-             position= position_jitter(height = 0.02)) +
-  geom_abline(intercept = 0, slope = 1, 
-              col="red",
-              linetype="dashed") +
-  scale_color_d3() +
-  theme_pander() +
-
-  theme(legend.position = "right") +
-  guides(col=guide_legend("Classification")) +
-  coord_fixed(xlim=c(0, 1), ylim=c(0, 1)) +
-  annotate("text", x=0.3, y=0.7,
-           label=paste("Accuracy (",
-                       length(Y),
-                       ") = ",
-                       aval,
-                       "%",
-                       sep="")) +
-  ylab("Observed Strategy") +
-  xlab("Predicted Strategy") +
-  ggtitle(paste("Predicted vs. Observation",title)) +
-  theme(legend.position = "bottom")
+  p <- ggplot(wcomparison, aes(x=Predicted, y=Observed, 
+                               col=Accuracy)) +
+    geom_point(size=4, alpha=0.6, 
+               position= position_jitter(height = 0.02)) +
+    geom_abline(intercept = 0, slope = 1, 
+                col="red",
+                linetype="dashed") +
+    scale_color_d3() +
+    theme_pander() +
   
-  ggMarginal(p, 
-             fill="grey", 
-             alpha=0.75,
-             type="density", #bins=13, 
-             col="darkgrey",
-             margins = "both")
+    theme(legend.position = "right") +
+    guides(col=guide_legend("Classification")) +
+    coord_fixed(xlim=c(0, 1), ylim=c(0, 1)) +
+    annotate("text", x=0.3, y=0.7,
+             label=paste("Accuracy (",
+                         length(Y),
+                         ") = ",
+                         aval,
+                         "%",
+                         sep="")) +
+    ylab("Observed Strategy") +
+    xlab("Predicted Strategy") +
+    ggtitle(paste("Predicted vs. Observation",title)) +
+    theme(legend.position = "bottom")
+    
+    ggMarginal(p, 
+               fill="grey", 
+               alpha=0.75,
+               type="density", #bins=13, 
+               col="darkgrey",
+               margins = "both")
+    
+    return (p)
 }
 
 plot_roc <- function(Y, Yp, title) {
@@ -722,8 +724,8 @@ connectome %>%
            #y.text.col = TRUE,
            title = paste("Lasso Connection Weights:", dim(connectome)[[1]]),
            ggtheme = theme_pander()) +
-  geom_hline(yintercept = 0, linetype = 2, color = "black") 
-  
+  geom_hline(yintercept = 0, linetype = 2, color = "black")
+   
 ```
 
 
@@ -1056,7 +1058,7 @@ plot_prediction(Y, apply(nested.test.Ypp, 1, mean, na.rm=T), "(Testing)")
 plot_roc(Y, apply(nested.train.Ypp, 1, mean, na.rm=T), "(Training)")
 ```
 
-```{r fig.height=6, fig.width=6}
+```{r fig.height=4, fig.width=6}
 plot_roc(Y, apply(nested.test.Ypp, 1, mean, na.rm=T), "(Testing)")
 ```
 
@@ -1493,6 +1495,213 @@ title("Network connections")
 circos.clear()
 ```
 
+---
+title: "brain_network_tempt"
+author: "Cher Yang"
+date: "6/6/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = T)
+library(tidyverse)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(ggthemes)
+library(ppcor)
+library(reshape2)
+#library(gglasso)
+library(glmnet)
+library(ggsci)
+library(viridis)
+library(ggExtra)
+library(kableExtra)
+library(xtable)
+library(ggrepel)
+library(scales)
+library(car)
+library(pROC)
+library(patchwork)      # Multi-plot alignment
+library(brainconn)
+library(igraph)
+library(network)
+library(brainconn)
+library(brainGraph)
+library(RColorBrewer)
+library(networkD3)
+library(ggpubr)
+library(DescTools)
+library(plotly)
+library(circlize)
+library(ggcorrplot)
+#library(chorddiag)
+#library(data.table)
+rm(list=ls())
+```
+
+
+```{r}
+power2011 <- read_csv("../behavior/power_2011.csv", 
+                      col_types = cols(ROI=col_double(),
+                                       X = col_double(),
+                                       Y = col_double(),
+                                       Z = col_double(),
+                                       Network = col_double(),
+                                       Color = col_character(),
+                                       NetworkName = col_character())) %>%
+  dplyr::select(ROI, X, Y, Z, Network, Color, NetworkName)
+
+colors <- factor(power2011$Color)
+levels(colors) <-  c(brewer.pal(name="Set3", n = 12), brewer.pal(name="Set1", n = 9))[1:14]
+power2011$Color <- as.character(colors)
+  
+load("./__cache__/brainNetworks.RData")
+```
+
+```{r}
+C.z <- FisherZ(C)
+C.zmean <- matrix(colMeans(C.z), nrow=264, ncol = 264)
+A <- FisherZInv(C.zmean)
+A.vec <- as.vector(A)
+```
+
+```{r}
+connectom2matrix <- function(connectome, w) {
+  empty_mat <- matrix(0, 264, 264, dimnames = list(paste0("X", 1:264), paste0("X", 1:264))) 
+  empty_mat[connectome$index] <- connectome$W
+  return(empty_mat)
+}
+
+# convert a 264*264 matrix back to connectom df
+matrix2connectom <- function(mat, connectome, col_name) {
+  connectome$temp = mat[connectome$index]
+  connectome <- rename(connectome, !!col_name := temp)
+  return(connectome)
+}
+
+# make the matrix symmetric
+make_symmetric <- function(m) {
+  # lower.tri is 0.0
+  m[lower.tri(m)] <- t(m)[lower.tri(m)]
+  return(m)
+}
+
+power_atals <- power2011 %>% 
+  rename(ROI.Name = ROI, x.mni=X, y.mni=Y, z.mni=Z, network=NetworkName) %>% 
+  mutate(ROI.Name=as.integer(ROI.Name), index = as.integer(ROI.Name),
+         x.mni=as.integer(x.mni), y.mni=as.integer(y.mni), z.mni=as.numeric(z.mni)) %>%
+  dplyr::select(ROI.Name, x.mni, y.mni, z.mni, network, index)
+
+check_atlas(power_atals)
+```
+
+```{r}
+NESTED <- FALSE
+SKIP <- TRUE
+
+if(NESTED) {
+  connectome_data <- connectome_nested
+} else {
+  connectome_data <- connectome
+}
+
+Wconnectome <- connectome_data %>%
+  mutate(A = A.vec[connectome_data$index], W = A*Beta)
+  #separate(connection, c("connection1", "connection2"))%>%
+  #separate(network, sep = "-", c("network1", "network2"), remove = F) %>%
+  #filter(str_detect(network, pattern = "-1-")) %>%
+         #network1 = ifelse(str_detect(network, pattern = "-1-"), -1, network1)) %>%
+  #mutate(connection_type = ifelse(network1==network2, "Within", "Between"))
+
+W_mat <- matrix(0, ncol = 264, nrow = 264)
+W_mat[Wconnectome$index] <- Wconnectome$W
+W_mat <- make_symmetric(W_mat) #CHECKED correct W_mat
+
+
+rownames(W_mat) = power_atals$network
+colnames(W_mat) = power_atals$network
+```
+
+### Declarative Network 
+
+```{r}
+power_color = power2011 %>% 
+  filter(NetworkName!="Sensory/somatomotor Mouth") %>%
+  select(Color, NetworkName) %>% 
+  unique()
+power_color
+```
+
+
+```{r }
+colors <- c(Uncertain = "#E41A1C", `Sensory/somatomotor Hand` = "#FB8072",
+            `Cingulo-opercular Task Control` = "#BC80BD", Auditory = "#D9D9D9",
+            `Default mode` = "#CCEBC5", `Memory retrieval?` = "#80B1D3", 
+            `Ventral attention` = "#FFED6F", Visual = "#FFFFB3", 
+            `Fronto-parietal Task Control` = "#377EB8", Salience = "#8DD3C7", 
+            Subcortical = "#BEBADA", Cerebellar = "#FCCDE5", 
+            `Dorsal attention` = "#FDB462")
+```
+
+```{r width=15}
+circos.clear()
+chordDiagram(W_mat, directional = FALSE, transparency = 0.5, self.link = 2, 
+             symmetric = TRUE, scale = F, reduce = F, 
+             annotationTrackHeight = mm_h(c(10, 1)),
+             annotationTrack = c("grid", "axis"),
+             grid.col = colors, col = ifelse(W_mat>0, "tomato", "#00000000"))
+title("Declarative Network",  cex.main = 2)
+
+```
+
+```{r width=15}
+circos.clear()
+chordDiagram(W_mat, directional = FALSE, transparency = 0.5, self.link = 2, 
+             symmetric = TRUE, scale = F, reduce = F, 
+             annotationTrackHeight = mm_h(c(10, 1)),
+             annotationTrack = c("grid", "axis"),
+             grid.col = colors, col = ifelse(W_mat<0, "steelblue", "#00000000"))
+title("Procedural Network", cex.main = 2)
+```
+
+```{r}
+circos.clear()
+chordDiagram(W_mat, directional = FALSE, transparency = 0.5, self.link = 2, 
+             symmetric = TRUE, scale = F, reduce = F, 
+             preAllocateTracks = 1,
+             annotationTrackHeight = mm_h(c(10, 5)),
+             annotationTrack = c("grid"),
+             grid.col = colors, col = ifelse(W_mat>0, "tomato", "#00000000"))
+#title("Declarative Network",  cex.main = 2)
+circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
+  xlim = get.cell.meta.data("xlim")
+  ylim = get.cell.meta.data("ylim")
+  sector.name = get.cell.meta.data("sector.index")
+  circos.text(mean(xlim), ylim[1] + .1, sector.name, facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
+  circos.axis(h = "top", labels.cex = 0.5, major.tick.percentage = 0.2, sector.index = sector.name, track.index = 2)
+}, bg.border = NA)
+```
+
+```{r}
+circos.clear()
+chordDiagram(W_mat, directional = FALSE, transparency = 0.5, self.link = 2, 
+             symmetric = TRUE, scale = F, reduce = F, 
+             preAllocateTracks = 1,
+             annotationTrackHeight = mm_h(c(10, 5)),
+             annotationTrack = c("grid"),
+             grid.col = colors, col = ifelse(W_mat<0, "steelblue", "#00000000"))
+#title("Declarative Network",  cex.main = 2)
+circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
+  xlim = get.cell.meta.data("xlim")
+  ylim = get.cell.meta.data("ylim")
+  sector.name = get.cell.meta.data("sector.index")
+  circos.text(mean(xlim), ylim[1] + .1, sector.name, facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
+  circos.axis(h = "top", labels.cex = 0.5, major.tick.percentage = 0.2, sector.index = sector.name, track.index = 2)
+}, bg.border = NA)
+```
+
+
 
 ##Network and node desciptives
 
@@ -1761,7 +1970,7 @@ df.c1 <- power2011[c12,] %>%
 p7 <- df.c1 %>%
   ggplot(aes(x=count, y=NetworkName)) +
   geom_col(aes(fill = NetworkName)) +
-   scale_fill_manual(guide = guide_legend(reverse = T), values = df.c2$Color) +
+   scale_fill_manual(guide = guide_legend(reverse = T), values = df.c1$Color) +
   scale_x_reverse() +
   theme_pander() +
   ggtitle("Declarative network", subtitle = "Distribution of connections") +
@@ -1832,10 +2041,11 @@ p8
 
 ```{r fig.height=5, fig.width=18}
 #png("./figures/network_distributions.png", bg = "white", width =3600, height = 1000, units = "px", res = 150)
-png(filename = "./__cache__/figures3.png",  bg = "transparent", width =3600, height = 1000, units = "px", res = 150)
-ggarrange(p7, NULL, NULL, p8, 
+png(filename = "./__cache__/figures3.png",  bg = "transparent", 
+    width =3000, height = 1500, units = "px", res = 150)
+ggarrange(p7, NULL, NULL, NULL, p8, 
           #labels = c("A", "B", "C"),
-          ncol = 4, nrow = 1, align = "h", 
+          ncol = 5, nrow = 1, align = "h", 
           common.legend = TRUE, legend = "bottom", widths = c(1,.8,.8,1))
 
 ```

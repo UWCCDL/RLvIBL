@@ -183,7 +183,7 @@ calculate.maxLL <- function(subjID, subj.dat, m1.dat, m2.dat){
     slice_max(PSwitch.LL, n = 1) %>%
     # add model simulation data
     inner_join(m1.agg) %>% #filter(TrialType!='Neutral'), on='ParamID') %>% 
-    pivot_wider(id_cols = c('HCPID', 'ParamID', 'ans', 'bll', 'lf', 'PSwitch.LL'), 
+    pivot_wider(id_cols = c('HCPID', 'ParamID', 'egs', 'alpha', 'r', 'PSwitch.LL'), 
                 names_from = aggregate_variables, 
                 values_from = c('PSwitch.mean', 'PSwitch.sd'))
   

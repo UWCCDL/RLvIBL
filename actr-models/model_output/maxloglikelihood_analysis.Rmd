@@ -84,6 +84,38 @@ d <- read.csv("./max_loglikelihood.csv", sep = ",") %>%
 #  summarise(Pswitch = mean(Pswitch))
 ```
 
+# Max-LL and Behaviro
+
+```{r}
+
+d %>% select(HCPID, best_model) %>% unique() %>% count(best_model) %>%
+  mutate(best_model = ifelse(best_model == "m1", "Declarative", "Procedural")) %>%
+  ggbarplot(x = "best_model", y="n", label = T, lab.pos = "in", lab.size = 10, lab.col = "white", 
+            title = "Subjects' Decision-Making Strategies Identified by ACT-R Models", 
+            xlab="Model",  ylab = "Number of Subjects",
+            color = c("red3", "steelblue"), fill=c("red3", "steelblue")) +
+  theme_pander(base_size = 25)
+ggsave("./maxloglikelihood_analysis_files/figure-html/figure1A.jpeg", units="in", width=15, height=4, dpi=300)
+```
+
+```{r}
+d %>% select(HCPID, best_model, trial_type, block_type, Pswitch) %>%
+  mutate(TrialType = factor(ifelse(trial_type=="Reward", "Win", trial_type), levels = c("Win", "Loss")),
+         BlockType = factor(ifelse(block_type=="Reward", "Win", block_type), levels = c("Win", "Loss")),
+         Group = ifelse(best_model == "m1", "Declarative", "Procedural")) %>%
+  ggplot(aes(x = TrialType, y = Pswitch, group=Group, color=Group)) +
+  facet_grid(~ BlockType, labeller = label_both) +
+  labs(y="Probability of Switching", x="Feedback") +
+  scale_color_brewer(palette = "Set2") +
+  stat_summary(fun.data = "mean_cl_boot", geom = "pointrange", show.legend = T, size=2,
+               position = position_dodge(width = .5)) +
+  stat_summary(fun.data = "mean_cl_boot", geom = "line", , show.legend = F, size=1.5,
+               position =  position_dodge(width = .5)) +
+  scale_color_manual(values = c("red3", "steelblue")) + 
+  theme_pander(base_size = 25, lp = "bottom") 
+ggsave("./maxloglikelihood_analysis_files/figure-html/figure1B.jpeg", units="in", width=15, height=5, dpi=300)
+```
+
 # Stat Analysis
 
 ## Mixed GLM in R
