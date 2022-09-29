@@ -101,10 +101,10 @@ ggsave("./maxloglikelihood_analysis_files/figure-html/figure1A.jpeg", units="in"
 ```{r}
 d %>% select(HCPID, best_model, trial_type, block_type, Pswitch) %>%
   mutate(TrialType = factor(ifelse(trial_type=="Reward", "Win", trial_type), levels = c("Win", "Loss")),
-         BlockType = factor(ifelse(block_type=="Reward", "Win", block_type), levels = c("Win", "Loss")),
+         `Block Type` = factor(ifelse(block_type=="Reward", "Mostly Win", "Mostly Losses"), levels = c("Mostly Win", "Mostly Losses")),
          Group = ifelse(best_model == "m1", "Declarative", "Procedural")) %>%
   ggplot(aes(x = TrialType, y = Pswitch, group=Group, color=Group)) +
-  facet_grid(~ BlockType, labeller = label_both) +
+  facet_grid(~ `Block Type`, labeller = label_both) +
   labs(y="Probability of Switching", x="Feedback") +
   scale_color_brewer(palette = "Set2") +
   stat_summary(fun.data = "mean_cl_boot", geom = "pointrange", show.legend = T, size=2,
